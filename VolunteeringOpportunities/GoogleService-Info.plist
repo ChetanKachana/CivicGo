@@ -1,0 +1,30 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>API_KEY</key>
+	<string>AIzaSyBx6v9TupUDOn_JHNN9ZGcpARu6aNapd-A</string>
+	<key>GCM_SENDER_ID</key>
+	<string>538483098150</string>
+	<key>PLIST_VERSION</key>
+	<string>1</string>
+	<key>BUNDLE_ID</key>
+	<string>Chey.VolunteeringOpportunities</string>
+	<key>PROJECT_ID</key>
+	<string>volunteeringopportunitie-35656</string>
+	<key>STORAGE_BUCKET</key>
+	<string>volunteeringopportunitie-35656.firebasestorage.app</string>
+	<key>IS_ADS_ENABLED</key>
+	<false></false>
+	<key>IS_ANALYTICS_ENABLED</key>
+	<false></false>
+	<key>IS_APPINVITE_ENABLED</key>
+	<true></true>
+	<key>IS_GCM_ENABLED</key>
+	<true></true>
+	<key>IS_SIGNIN_ENABLED</key>
+	<true></true>
+	<key>GOOGLE_APP_ID</key>
+	<string>1:538483098150:ios:8ec94f0cbb43ce483a5ce7</string>
+</dict>
+</plist>
