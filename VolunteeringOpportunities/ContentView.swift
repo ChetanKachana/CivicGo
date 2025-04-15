@@ -1,24 +1,20 @@
-//
-//  ContentView.swift
-//  VolunteeringOpportunities
-//
-//  Created by Chey K on 4/13/25.
-//
-
 import SwiftUI
 
 struct ContentView: View {
-    var body: some View {
-        VStack {
-            Image(systemName: "globe")
-                .imageScale(.large)
-                .foregroundStyle(.tint)
-            Text("Hello, world!")
-        }
-        .padding()
-    }
-}
+    // Get AuthViewModel from environment to check login state
+    @EnvironmentObject var authViewModel: AuthenticationViewModel
+    // OppViewModel is also in environment, available to children
 
-#Preview {
-    ContentView()
+    var body: some View {
+        Group { // Group allows conditional view switching
+            if authViewModel.userSession != nil {
+                // User is LOGGED IN - Show the main app TabView
+                MainTabView()
+            } else {
+                // User is LOGGED OUT - Show the Authentication screen
+                AuthenticationView()
+            }
+        }
+        // ViewModels are already injected by the App struct
+    }
 }
