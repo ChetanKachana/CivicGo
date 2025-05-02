@@ -1,342 +1,481 @@
 import Foundation
 import FirebaseFirestore
-import Combine          // For reactive programming (e.g., @Published, AnyCancellable)
-import FirebaseAuth       // For checking user authentication state
+import Combine
+import FirebaseAuth
 
-// MARK: - Opportunity View Model (with Favorites)
-// Manages fetching, creating, and handling user favoriting of volunteering opportunities.
-// Reacts to authentication state changes to fetch appropriate data.
+// MARK: - Opportunity View Model (Using Counter for RSVP Refresh)
+// Manages fetching, CUD, favoriting, RSVPing, attendance tracking, and manager removal of attendees
+// for volunteering opportunities. Reacts to authentication state changes. Includes optimistic UI for RSVP
+// and uses a counter to help trigger view updates for RSVP state changes.
 class OpportunityViewModel: ObservableObject {
 
     // MARK: - Published Properties (State exposed to SwiftUI Views)
-    // These properties will automatically trigger UI updates when their values change.
 
-    @Published var opportunities = [Opportunity]()         // Holds ALL fetched opportunities
-    @Published var errorMessage: String?                // Stores error messages for UI display
-    @Published var isLoading: Bool = false                 // Indicates if data is being fetched/updated
-    @Published var favoriteOpportunityIds = Set<String>() // Set of IDs of opportunities the user has favorited
+    // Core Data & State
+    @Published var opportunities = [Opportunity]() { // Holds ALL fetched opportunities
+         didSet { // Increment trigger whenever the main list updates from Firestore
+             if oldValue != opportunities { // Basic check to avoid incrementing if identical array assigned
+                 opportunityListUpdateTrigger += 1
+                 print("Opportunities array updated (didSet), list trigger now \(opportunityListUpdateTrigger)")
+             }
+         }
+    }
+    @Published var errorMessage: String?                // General error messages (CUD, Fetch)
+    @Published var isLoading: Bool = false                 // General loading state (fetch, CUD)
+    @Published var isCurrentUserAManager: Bool = false     // Tracks if the current user has manager role
+
+    // User-Specific Data
+    @Published var favoriteOpportunityIds = Set<String>() // IDs of favorited opportunities
+    @Published var rsvpedOpportunityIds = Set<String>() { // IDs of opportunities user RSVP'd to
+         didSet { // Increment trigger whenever the set changes programmatically
+             if oldValue != rsvpedOpportunityIds { // Only increment if value actually changed
+                 rsvpStateUpdateTrigger += 1
+                 print("rsvpedOpportunityIds changed (didSet), trigger now \(rsvpStateUpdateTrigger)")
+             }
+         }
+    }
+
+    // Action-Specific State
+    @Published var isTogglingRsvp: Bool = false            // RSVP loading
+    @Published var rsvpErrorMessage: String?              // RSVP errors
+    @Published var isUpdatingAttendance: Bool = false      // Attendance update loading
+    @Published var attendanceErrorMessage: String?        // Attendance update errors
+    @Published var isRemovingAttendee: Bool = false        // Loading state for manager removing attendee
+    @Published var removeAttendeeErrorMessage: String?    // Error for manager removing attendee
+
+    // Counter to help force UI updates when RSVP or List state changes
+    @Published var rsvpStateUpdateTrigger: Int = 0         // Trigger for RSVP status changes
+    @Published var opportunityListUpdateTrigger: Int = 0   // Trigger for main list data changes
 
     // MARK: - Private Properties
     private var db = Firestore.firestore()                  // Firestore database reference
     private var opportunitiesListener: ListenerRegistration? // Listener for the opportunities collection
-    private var userFavoritesListener: ListenerRegistration? // Listener for the current user's favorites data
-    private var authViewModelCancellable: AnyCancellable?    // Subscription to AuthenticationViewModel's user session changes
+    private var userDataListener: ListenerRegistration?      // Combined listener for user's doc (favorites & RSVPs)
+    private var authCancellables = Set<AnyCancellable>()    // Stores subscriptions to AuthenticationViewModel
 
     // MARK: - Initialization
     init() {
         print("OpportunityViewModel initialized.")
-        // No complex Combine pipelines needed for simple favorites array handling
     }
 
     // MARK: - Setup & Teardown
 
-    // Connects this ViewModel to the AuthenticationViewModel.
-    // This allows OpportunityViewModel to react when the user logs in, logs out,
-    // or switches between anonymous/authenticated states.
-    func setupUserObservations(authViewModel: AuthenticationViewModel) {
-        print("Setting up user observations in OpportunityViewModel")
-        authViewModelCancellable?.cancel() // Ensure no duplicate subscriptions
+    /// Connects this ViewModel to the AuthenticationViewModel to observe changes.
+    func setupAuthObservations(authViewModel: AuthenticationViewModel) {
+        print("Setting up auth observations (user session & manager status) in OpportunityViewModel")
+        authCancellables.forEach { $0.cancel() }; authCancellables.removeAll() // Clear previous subs
 
-        // Subscribe to changes in the 'userSession' published property of AuthenticationViewModel.
-        authViewModelCancellable = authViewModel.$userSession
-            .receive(on: RunLoop.main) // Ensure UI-related updates happen on the main thread
-            .sink { [weak self] user in // Use weak self to prevent retain cycles
+        // Observe User Session
+        authViewModel.$userSession
+            .receive(on: RunLoop.main)
+            .sink { [weak self] user in
                 guard let self = self else { return }
-                print("Auth state change received. User: \(user?.uid ?? "nil"), Anonymous: \(user?.isAnonymous ?? true)")
-
-                // --- React to Authentication State Change ---
-
-                // Fetch general opportunities list if *any* user session exists (including anonymous).
-                // This depends on Firestore rules allowing reads for any authenticated user.
-                if user != nil {
-                    self.fetchOpportunities()
-                } else {
-                    // No user session exists (e.g., after explicit sign out and before anonymous sign-in).
-                    self.opportunities = [] // Clear the main list
-                    self.isLoading = false
-                    self.errorMessage = nil
-                    self.clearUserFavorites() // Clear any potentially lingering favorites data
-                    print("No user session. Opportunities and user data cleared.")
-                }
-
-                // Fetch user-specific favorites data ONLY if the user is logged in AND NOT anonymous.
-                if let currentUser = user, !currentUser.isAnonymous {
-                    print("Non-anonymous user detected (\(currentUser.uid)). Fetching user favorites.")
-                    self.fetchUserFavorites(userId: currentUser.uid) // Fetch favorites for this specific user
-                } else {
-                    // User is anonymous or nil - clear favorites data and stop listening.
-                    print("User is anonymous or nil. Clearing user favorites data.")
-                    self.clearUserFavorites()
-                }
+                print("Auth Session change received in OppVM. User: \(user?.uid ?? "nil")")
+                if user != nil { self.fetchOpportunities() } // Fetch opportunities if any user exists
+                else { self.clearAllDataAndListeners() } // Clear everything on logout
+                if let currentUser = user, !currentUser.isAnonymous { self.fetchUserData(userId: currentUser.uid) } // Fetch user data if logged in
+                else { self.clearUserData() } // Clear user data if logged out or anonymous
             }
+            .store(in: &authCancellables)
+
+        // Observe Manager Status
+        authViewModel.$isManager
+            .receive(on: RunLoop.main)
+            .sink { [weak self] isMgr in
+                 if self?.isCurrentUserAManager != isMgr { self?.isCurrentUserAManager = isMgr; print("Manager status updated: \(isMgr)") }
+            }
+            .store(in: &authCancellables)
     }
 
-    // Cleans up Firestore listeners and Combine subscriptions when the ViewModel instance is deallocated.
+    /// Cleans up Firestore listeners and Combine subscriptions.
     deinit {
-        print("OpportunityViewModel deinited. Removing listeners...")
+        print("OpportunityViewModel deinited.")
         opportunitiesListener?.remove()
-        userFavoritesListener?.remove()
-        authViewModelCancellable?.cancel()
-        print("OpportunityViewModel listeners removed.")
+        userDataListener?.remove()
+        authCancellables.forEach { $0.cancel() }
+        print("OpportunityViewModel cleanup complete.")
     }
 
-    // MARK: - Private Helper Methods
+    // MARK: - Helper Methods (Internal Access)
 
-    // Clears local user-specific state (favorites) and stops the Firestore listener for user data.
-    private func clearUserFavorites() {
-        userFavoritesListener?.remove() // Stop listening to the previous user's document
-        userFavoritesListener = nil
-        favoriteOpportunityIds = [] // Clear the local set of favorite IDs
-        print("User favorites data cleared.")
+    /// Clears local user-specific state (favorites, RSVPs) and stops the listener.
+    func clearUserData() { // Default internal access
+        print("Clearing user data listener and local state (Favorites, RSVPs).")
+        userDataListener?.remove(); userDataListener = nil
+        // Reset published sets only if they contain data to avoid redundant UI updates
+        if !favoriteOpportunityIds.isEmpty { favoriteOpportunityIds = [] }
+        if !rsvpedOpportunityIds.isEmpty { rsvpedOpportunityIds = [] }
+        // No need to change trigger here, full clear handles it
     }
 
-    // MARK: - Firestore Operations
+    /// Clears all data and listeners. Called on complete logout. Includes counter reset.
+    func clearAllDataAndListeners() { // Default internal access
+        print("Clearing all data, listeners, and resetting state in OppVM.")
+        opportunitiesListener?.remove(); opportunitiesListener = nil
+        userDataListener?.remove(); userDataListener = nil
+        // Reset published arrays/sets
+        if !opportunities.isEmpty { opportunities = [] }
+        if !favoriteOpportunityIds.isEmpty { favoriteOpportunityIds = [] }
+        if !rsvpedOpportunityIds.isEmpty { rsvpedOpportunityIds = [] }
+        // Reset state variables
+        errorMessage = nil; rsvpErrorMessage = nil; attendanceErrorMessage = nil; removeAttendeeErrorMessage = nil
+        isLoading = false; isTogglingRsvp = false; isUpdatingAttendance = false; isRemovingAttendee = false
+        isCurrentUserAManager = false
+        rsvpStateUpdateTrigger = 0 // Reset RSVP trigger
+        opportunityListUpdateTrigger = 0 // Reset List trigger
+    }
 
-    // Fetches the main list of all volunteering opportunities from Firestore.
-    // Requires an authenticated user session (anonymous OK, based on typical rules).
+    /// Enum to differentiate error types for auto-clearing. Accessible within the module.
+    enum ErrorType { case general, rsvp, attendance, removeAttendee } // Default internal access
+
+    /// Helper to auto-clear error messages after a delay. Accessible within the module.
+    func clearErrorAfterDelay(_ errorType: ErrorType, duration: TimeInterval = 4.0) { // Default internal access
+         DispatchQueue.main.asyncAfter(deadline: .now() + duration) { [weak self] in
+             guard let self = self else { return }
+             switch errorType {
+             case .general:        if self.errorMessage != nil { self.errorMessage = nil }
+             case .rsvp:           if self.rsvpErrorMessage != nil { self.rsvpErrorMessage = nil }
+             case .attendance:     if self.attendanceErrorMessage != nil { self.attendanceErrorMessage = nil }
+             case .removeAttendee: if self.removeAttendeeErrorMessage != nil { self.removeAttendeeErrorMessage = nil }
+             }
+         }
+     }
+
+    /// Combines a Date (for day/month/year) with another Date (for time). Internal access.
+    func combine(date: Date, time: Date) -> Date? { // Default internal access
+        let calendar = Calendar.current
+        let dateComponents = calendar.dateComponents([.year, .month, .day], from: date)
+        let timeComponents = calendar.dateComponents([.hour, .minute, .second], from: time)
+        var combinedComponents = DateComponents()
+        combinedComponents.year = dateComponents.year; combinedComponents.month = dateComponents.month; combinedComponents.day = dateComponents.day
+        combinedComponents.hour = timeComponents.hour; combinedComponents.minute = timeComponents.minute; combinedComponents.second = timeComponents.second
+        combinedComponents.timeZone = calendar.timeZone
+        return calendar.date(from: combinedComponents)
+    }
+
+
+    // MARK: - Firestore Operations: Opportunities (Read, Create, Update, Delete)
+
+    /// Fetches the main list of volunteering opportunities from Firestore.
     func fetchOpportunities() {
-        // Ensure a user session exists before attempting fetch.
-        guard Auth.auth().currentUser != nil else {
-            print("Fetch Opportunities skipped: No user session found unexpectedly.")
-            self.opportunities = []; self.isLoading = false; self.errorMessage = nil; self.clearUserFavorites()
-            return
-        }
-
-        isLoading = true
-        errorMessage = nil
-        print("Attempting to fetch opportunities...")
-        opportunitiesListener?.remove() // Avoid attaching multiple listeners
+        guard Auth.auth().currentUser != nil else { print("Fetch Ops skipped."); clearAllDataAndListeners(); return }
+        if opportunitiesListener == nil { isLoading = true } // Show loading only on initial fetch
+        print("FETCHING Opportunities...")
+        opportunitiesListener?.remove() // Ensure no duplicate listener
 
         let collectionRef = db.collection("volunteeringOpportunities")
         opportunitiesListener = collectionRef
-            .order(by: "eventTimestamp", descending: false) // Order chronologically
+            .order(by: "eventTimestamp", descending: false) // Sort by start time
             .addSnapshotListener { [weak self] (querySnapshot, error) in
-                 guard let self = self else { return }
-                 self.isLoading = false // Fetch attempt finished
+                 guard let self = self else { return }; self.isLoading = false // Stop loading indicator
 
-                 // Handle potential errors during fetch
                  if let error = error {
-                     let nsError = error as NSError
-                     if nsError.domain == FirestoreErrorDomain && nsError.code == 7 { // Permission Denied
-                          self.errorMessage = "Permission Denied: Cannot read opportunities. Check Firestore rules."
-                          print("!!! Firestore Read Error (Permission Denied): \(error.localizedDescription)")
-                     } else {
-                          self.errorMessage = "Error Loading Opportunities: \(error.localizedDescription)"
-                          print("!!! Firestore Read Error: \(error)")
-                     }
-                     self.opportunities = [] // Clear data on error
-                     return // Stop processing
+                     let nsError = error as NSError; let message = "Error Loading: \(error.localizedDescription)"
+                     self.errorMessage = message; self.opportunities = [] // Clear data on error
+                     if nsError.code == FirestoreErrorCode.permissionDenied.rawValue { self.errorMessage = "Permission Denied." }
+                     print("!!! Firestore Read Error (\(nsError.code)): \(error.localizedDescription)"); return
                  }
-
-                 // Process the fetched documents
                  guard let documents = querySnapshot?.documents else {
-                     self.errorMessage = "Could not retrieve opportunity documents."
-                     print("!!! No documents reference found (querySnapshot?.documents was nil)")
-                     self.opportunities = []
-                     return
+                     self.errorMessage = "Could not retrieve documents."; self.opportunities = []; print("!!! No documents found"); return
                  }
 
-                 print(">>> Snapshot received with \(documents.count) documents.")
-                 // Map Firestore documents to local Opportunity objects using the custom initializer
-                 self.opportunities = documents.compactMap { Opportunity(snapshot: $0) }
-                 self.errorMessage = nil // Clear any previous error on success
-                 print(">>> ViewModel opportunities list updated. Count: \(self.opportunities.count)")
+                 print(">>> Opportunity snapshot received with \(documents.count) documents.")
+                 let newOpportunities = documents.compactMap { Opportunity(snapshot: $0) } // Map to local struct
+                 // Check if the data actually changed before assigning to trigger didSet
+                 if self.opportunities != newOpportunities {
+                      self.opportunities = newOpportunities
+                 } else {
+                      // If data is the same, maybe just stop loading indicator without triggering didSet
+                      print(">>> Opportunity snapshot data unchanged.")
+                 }
+                 if self.errorMessage != nil { self.errorMessage = nil } // Clear previous error on success
+                 print(">>> ViewModel opportunities list updated check complete. Count: \(self.opportunities.count)")
             }
     }
 
-    // Adds a new opportunity to Firestore (requires a non-anonymous user).
-    func addOpportunity(name: String, location: String, description: String, eventDate: Date, endDate: Date) {
-        // Ensure the user is logged in and not anonymous before allowing creation.
-        guard let user = Auth.auth().currentUser, !user.isAnonymous else {
-             self.errorMessage = "Please log in or sign up to add an opportunity."
-             print("Add opportunity failed: User is anonymous or not logged in.")
-              DispatchQueue.main.asyncAfter(deadline: .now() + 3) { self.errorMessage = nil } // Auto-clear message
-             return
-         }
-         let userId = user.uid // We have a valid, non-anonymous user ID
+    /// Adds a new opportunity to Firestore. Requires manager role. Includes attendee limit. Initializes attendanceRecords.
+    func addOpportunity(name: String, location: String, description: String, eventDate: Date, endTime: Date, maxAttendeesInput: Int?) {
+        guard isCurrentUserAManager else { self.errorMessage = "Permission Denied."; clearErrorAfterDelay(.general); return }
+        guard let user = Auth.auth().currentUser, !user.isAnonymous else { self.errorMessage = "Valid session required."; isLoading = false; return }
+        isLoading = true; errorMessage = nil // Start loading
 
-        isLoading = true
-        errorMessage = nil
+        // Input Validation
+        let trimmedName = name.trimmingCharacters(in: .whitespacesAndNewlines); let trimmedLocation = location.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmedName.isEmpty, !trimmedLocation.isEmpty else { self.errorMessage = "Name/location required."; isLoading = false; return }
+        guard let combinedEndDate = combine(date: eventDate, time: endTime) else { self.errorMessage = "Error processing end time."; isLoading = false; return }
+        guard combinedEndDate > eventDate else { self.errorMessage = "End time must be after start."; isLoading = false; return }
 
-        // --- Input Validation ---
-        guard !name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
-              !location.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
-            self.errorMessage = "Please fill in name and location."; self.isLoading = false; return
-        }
-        guard endDate > eventDate else {
-            self.errorMessage = "End time must be after start time."; self.isLoading = false; return
-        }
-        // --- End Validation ---
+        let maxAttendeesValue = (maxAttendeesInput ?? 0) > 0 ? maxAttendeesInput : nil
+        let finalDescription = description.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? "No description." : description
 
-        let finalDescription = description.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? "No description provided." : description
-
-        // Prepare data dictionary for the new Firestore document.
+        // Prepare data for Firestore
         let opportunityData: [String: Any] = [
-            "name": name,
-            "location": location,
-            "description": finalDescription,
-            "eventTimestamp": Timestamp(date: eventDate), // Convert Date to Firestore Timestamp
-            "endTimestamp": Timestamp(date: endDate),
-            "creatorUserId": userId // Store the ID of the user who created the opportunity
+            "name": trimmedName, "location": trimmedLocation, "description": finalDescription,
+            "eventTimestamp": Timestamp(date: eventDate), "endTimestamp": Timestamp(date: combinedEndDate),
+            "creatorUserId": user.uid, "maxAttendees": maxAttendeesValue as Any, "attendeeIds": [],
+            "attendanceRecords": [:] // Initialize empty attendance map
         ]
         let collectionRef = db.collection("volunteeringOpportunities")
-
-        // Add the document to Firestore.
+        print("Attempting Firestore addDocument by manager \(user.uid)...")
         collectionRef.addDocument(data: opportunityData) { [weak self] error in
-            guard let self = self else { return }
-            self.isLoading = false // Operation finished
-
+            print("--- addDocument Completion Handler Entered ---")
+            guard let self = self else { return }; self.isLoading = false // Stop loading indicator
             if let error = error {
-                // Handle Firestore write errors, checking specifically for permission issues.
-                let nsError = error as NSError
-                if nsError.domain == FirestoreErrorDomain && nsError.code == 7 { // Permission Denied (Code 7)
-                    self.errorMessage = "Permission Denied: Cannot add opportunity. Check Firestore write rules."
-                    print("!!! Firestore Write Error (Permission Denied): \(error.localizedDescription)")
-                } else {
-                    // Handle other potential errors (network, etc.)
-                    self.errorMessage = "Error Adding Opportunity: \(error.localizedDescription)"
-                    print("!!! Error adding document: \(error)")
-                }
-            } else {
-                // Success!
-                self.errorMessage = nil // Clear any previous errors.
-                print("Opportunity added successfully by user \(userId)!")
-                // The OpportunityListView's Firestore listener will automatically pick up the new document.
-            }
+                let nsError = error as NSError; self.errorMessage = "Error Adding: \(error.localizedDescription)"
+                print("!!! Firestore Add Error: \(error.localizedDescription) (Code: \(nsError.code))"); self.clearErrorAfterDelay(.general)
+            } else { print(">>> Opportunity added successfully!"); self.errorMessage = nil }
         }
     }
 
+    /// Updates an existing opportunity in Firestore. Requires manager role. Includes attendee limit. Excludes attendance/attendee IDs.
+    func updateOpportunity(opportunityId: String, name: String, location: String, description: String, eventDate: Date, endTime: Date, maxAttendeesInput: Int?) {
+         guard isCurrentUserAManager else { self.errorMessage = "Permission Denied."; clearErrorAfterDelay(.general); return }
+         guard let user = Auth.auth().currentUser, !user.isAnonymous else { self.errorMessage = "Valid session required."; isLoading = false; return }
+         isLoading = true; errorMessage = nil // Start loading
 
-    // MARK: - User Favorites Logic (for non-anonymous users)
+         // Input Validation
+         let trimmedName = name.trimmingCharacters(in: .whitespacesAndNewlines); let trimmedLocation = location.trimmingCharacters(in: .whitespacesAndNewlines)
+         guard !trimmedName.isEmpty, !trimmedLocation.isEmpty else { self.errorMessage = "Name/location required."; isLoading = false; return }
+         guard let combinedEndDate = combine(date: eventDate, time: endTime) else { self.errorMessage = "Error processing end time."; isLoading = false; return }
+         guard combinedEndDate > eventDate else { self.errorMessage = "End time must be after start."; isLoading = false; return }
 
-    // Fetches the user's document to get the array of favorite opportunity IDs.
-    // Sets up a listener for real-time updates to the favorites.
-    func fetchUserFavorites(userId: String) {
-        print("Fetching favorites for non-anonymous user: \(userId)")
-        userFavoritesListener?.remove() // Ensure no duplicate listeners for user data
+         let maxAttendeesValue = (maxAttendeesInput ?? 0) > 0 ? maxAttendeesInput : nil
+         let finalDescription = description.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? "No description." : description
 
-        let userDocRef = db.collection("users").document(userId) // Reference to the user's document
-
-        // Attach a listener to the user's document
-        userFavoritesListener = userDocRef.addSnapshotListener { [weak self] (documentSnapshot, error) in
-            guard let self = self else { return }
-
-            var fetchedFavIds = Set<String>() // Start with an empty set for this update
-
-            // Handle errors fetching/listening to the document
-            if let error = error {
-                print("!!! Error listening to user favorites document for \(userId): \(error)")
-                // Clear local state on persistent errors to avoid showing stale data
-            }
-            // Process the document snapshot if it exists
-            else if let document = documentSnapshot, document.exists, let data = document.data() {
-                // Try to parse the 'favoriteOpportunityIds' field as an array of Strings
-                if let ids = data["favoriteOpportunityIds"] as? [String] {
-                    fetchedFavIds = Set(ids) // Populate the set with fetched IDs
-                    print("Fetched \(fetchedFavIds.count) favorite IDs for \(userId).")
-                } else {
-                    // Field might be missing or of the wrong type
-                    print("User doc \(userId) missing/invalid 'favoriteOpportunityIds' field. Assuming no favorites.")
-                }
-            } else {
-                 // Document doesn't exist or the snapshot was nil
-                 print("User document missing or snapshot nil for \(userId). Assuming no favorites.")
-            }
-
-            // --- Update Published Property ---
-            // Update the @Published set, which will trigger UI updates in observing views.
-            self.favoriteOpportunityIds = fetchedFavIds
-            print("Favorites set updated. Count: \(self.favoriteOpportunityIds.count)")
-        }
-    }
-
-    // Checks if a specific opportunity ID is present in the current user's favorites set.
-    // Returns false if the user is anonymous or the provided ID is nil.
-    func isFavorite(opportunityId: String?) -> Bool {
-         guard let id = opportunityId, Auth.auth().currentUser?.isAnonymous == false else {
-             return false // Anonymous users cannot have favorites; nil ID cannot be checked.
+         // Prepare update data (excluding attendeeIds and attendanceRecords)
+         let updatedData: [String: Any] = [
+             "name": trimmedName, "location": trimmedLocation, "description": finalDescription,
+             "eventTimestamp": Timestamp(date: eventDate), "endTimestamp": Timestamp(date: combinedEndDate),
+             "maxAttendees": maxAttendeesValue as Any
+         ]
+         let docRef = db.collection("volunteeringOpportunities").document(opportunityId)
+         print("Attempting to update opportunity \(opportunityId) by manager \(user.uid)...")
+         docRef.updateData(updatedData) { [weak self] error in
+             print("--- updateData Completion Handler Entered ---")
+             guard let self = self else { return }; self.isLoading = false // Stop loading indicator
+             if let error = error {
+                 let nsError = error as NSError; self.errorMessage = "Error Updating: \(error.localizedDescription)"
+                 print("!!! Firestore Update Error: \(error.localizedDescription) (Code: \(nsError.code))"); self.clearErrorAfterDelay(.general)
+             } else { print(">>> Opportunity \(opportunityId) updated successfully!"); self.errorMessage = nil }
          }
-         // Check if the ID exists in the local set of favorite IDs.
+     }
+
+    /// Deletes an opportunity from Firestore. Requires manager role.
+    func deleteOpportunity(opportunityId: String) {
+       guard isCurrentUserAManager else { self.errorMessage = "Permission Denied."; clearErrorAfterDelay(.general); return }
+       guard let user = Auth.auth().currentUser, !user.isAnonymous else { self.errorMessage = "Valid session required."; isLoading = false; return }
+       isLoading = true; errorMessage = nil // Start loading
+
+       let docRef = db.collection("volunteeringOpportunities").document(opportunityId)
+       print("Attempting to delete opportunity \(opportunityId) by manager \(user.uid)...")
+       docRef.delete { [weak self] error in
+           print("--- delete Completion Handler Entered ---")
+           guard let self = self else { return }; self.isLoading = false // Stop loading indicator
+           if let error = error {
+                let nsError = error as NSError; self.errorMessage = "Error Deleting: \(error.localizedDescription)"
+                print("!!! Firestore Delete Error: \(error.localizedDescription) (Code: \(nsError.code))"); self.clearErrorAfterDelay(.general)
+           } else { print(">>> Opportunity \(opportunityId) deleted successfully."); self.errorMessage = nil }
+       }
+    }
+
+    // MARK: - User Data Logic (Favorites & RSVPs)
+
+    /// Fetches user-specific data (Favorites and RSVPs) and sets up ONE listener. Increments trigger on RSVP change.
+    func fetchUserData(userId: String) {
+        print("Fetching user data (Favorites & RSVPs) for: \(userId)")
+        userDataListener?.remove() // Remove previous listener
+
+        let userDocRef = db.collection("users").document(userId)
+        // Use includeMetadataChanges: false to potentially reduce extra triggers
+        userDataListener = userDocRef.addSnapshotListener(includeMetadataChanges: false) { [weak self] (documentSnapshot, error) in
+            guard let self = self else { return }
+
+            let logTimestamp = Date().timeIntervalSince1970; print("[\(logTimestamp)] USER DATA LISTENER TRIGGERED for \(userId)")
+            var latestFavIds = Set<String>()
+            var latestRsvpIds = Set<String>()
+
+            if let error = error { print("[\(logTimestamp)] !!! Listener Error: \(error)"); return }
+            guard let document = documentSnapshot else { print("[\(logTimestamp)] documentSnapshot nil."); return }
+            // let source = document.metadata.hasPendingWrites ? "Local" : "Server"; print("[\(logTimestamp)] Snap Meta: Src=\(source), Pending=\(document.metadata.hasPendingWrites), Exists=\(document.exists)")
+
+            if document.exists, let data = document.data() {
+                latestFavIds = Set(data["favoriteOpportunityIds"] as? [String] ?? [])
+                latestRsvpIds = Set(data["rsvpedOpportunityIds"] as? [String] ?? [])
+                // print("[\(logTimestamp)] Parsed Favs(\(latestFavIds.count)) | Parsed RSVPs(\(latestRsvpIds.count))")
+            } else { print("[\(logTimestamp)] Doc missing/nil.") }
+
+            let favsChanged = self.favoriteOpportunityIds != latestFavIds
+            let rsvpsChanged = self.rsvpedOpportunityIds != latestRsvpIds // Compare BEFORE assigning
+            // print("[\(logTimestamp)] Comparison: Favs Changed=\(favsChanged), RSVPs Changed=\(rsvpsChanged)")
+
+            if favsChanged { self.favoriteOpportunityIds = latestFavIds; /* print("[\(logTimestamp)] ---> Favs Updated.") */ }
+            if rsvpsChanged {
+                self.rsvpedOpportunityIds = latestRsvpIds // Update the published set (triggers didSet)
+                // Note: didSet on rsvpedOpportunityIds now handles incrementing rsvpStateUpdateTrigger
+                print("[\(logTimestamp)] ---> RSVPs Set Updated via Listener.")
+            }
+            // print("[\(logTimestamp)] Listener Processed. Final VM RSVPs count: \(self.rsvpedOpportunityIds.count)")
+            // print("[\(logTimestamp)] ==============================================")
+        }
+    }
+
+
+    /// Checks if the current user has favorited a specific opportunity.
+    func isFavorite(opportunityId: String?) -> Bool {
+         guard let id = opportunityId, let user = Auth.auth().currentUser, !user.isAnonymous else { return false }
          return favoriteOpportunityIds.contains(id)
      }
 
-    // Adds or removes an opportunity ID from the user's 'favoriteOpportunityIds' array in Firestore.
-    // Requires a non-anonymous user. Uses optimistic UI updates.
+    /// Toggles the favorite status of an opportunity for the current user.
     func toggleFavorite(opportunity: Opportunity) {
-        // Ensure user is logged in and not anonymous.
-        guard let user = Auth.auth().currentUser, !user.isAnonymous else {
-            print("Cannot toggle favorite: User is anonymous or not logged in.")
-            self.errorMessage = "Please log in or sign up to save favorites."
-            // Clear the error message automatically after a few seconds.
-             DispatchQueue.main.asyncAfter(deadline: .now() + 3) {
-                 if self.errorMessage == "Please log in or sign up to save favorites." {
-                    self.errorMessage = nil
-                }
-             }
-            return
-        }
-        let userId = user.uid
-        let opportunityId = opportunity.id // Get the non-optional ID from the struct.
-
-        let userDocRef = db.collection("users").document(userId)
-        // Check the *current local state* to determine the action (add or remove).
-        let isCurrentlyFavorite = self.favoriteOpportunityIds.contains(opportunityId)
-
-        // --- Optimistic UI Update ---
-        // Modify the local @Published set *before* the Firestore call for immediate UI feedback.
-        var optimisticFavIds = self.favoriteOpportunityIds // Create a mutable copy.
-        if isCurrentlyFavorite {
-            optimisticFavIds.remove(opportunityId) // Remove if it was favorited.
-            print("Optimistic UI remove: \(opportunityId)")
-        } else {
-            optimisticFavIds.insert(opportunityId) // Add if it wasn't favorited.
-            print("Optimistic UI insert: \(opportunityId)")
-        }
-        // Update the @Published property - this triggers UI refresh via Combine.
+        guard let user = Auth.auth().currentUser, !user.isAnonymous else { self.errorMessage = "Log in to save favorites."; clearErrorAfterDelay(.general); return }
+        let userId = user.uid; let opportunityId = opportunity.id; let isCurrentlyFavorite = self.favoriteOpportunityIds.contains(opportunityId)
+        // Optimistic UI Update
+        var optimisticFavIds = self.favoriteOpportunityIds
+        if isCurrentlyFavorite { optimisticFavIds.remove(opportunityId) } else { optimisticFavIds.insert(opportunityId) }
         self.favoriteOpportunityIds = optimisticFavIds
-        // --- End Optimistic Update ---
-
-        // --- Prepare Firestore Update ---
-        // Use Firestore FieldValue arrayUnion/arrayRemove for atomic operations on the array.
-        let updateValue = isCurrentlyFavorite ?
-            FieldValue.arrayRemove([opportunityId]) : // Action to remove the ID from the array.
-            FieldValue.arrayUnion([opportunityId])   // Action to add the ID (only if not already present).
-
-        print("Updating Firestore favorites for Opp ID: \(opportunityId). Action: \(isCurrentlyFavorite ? "Remove" : "Add"). User: \(userId)")
-
-        // Use setData with merge: true. This is crucial because:
-        // 1. It creates the 'users' document if it doesn't exist.
-        // 2. It creates the 'favoriteOpportunityIds' field if it doesn't exist.
-        // 3. It correctly performs the arrayUnion/arrayRemove operation.
+        // Firestore Update
+        let userDocRef = db.collection("users").document(userId); let updateValue = isCurrentlyFavorite ? FieldValue.arrayRemove([opportunityId]) : FieldValue.arrayUnion([opportunityId])
         userDocRef.setData(["favoriteOpportunityIds": updateValue], merge: true) { [weak self] error in
-            guard let self = self else { return } // Safely unwrap self.
+            guard let self = self else { return }
+            if let error = error { // Failure
+                print("!!! Error updating favorites: \(error)"); self.errorMessage = "Failed to update favorite."
+                var revertedFavIds = self.favoriteOpportunityIds // Revert UI
+                if isCurrentlyFavorite { revertedFavIds.insert(opportunityId) } else { revertedFavIds.remove(opportunityId) }
+                self.favoriteOpportunityIds = revertedFavIds; self.clearErrorAfterDelay(.general)
+            } else { print("Favorites updated successfully."); self.errorMessage = nil } // Success
+        }
+    }
 
-            // --- Handle Firestore Completion ---
-            if let error = error {
-                // If the Firestore update fails:
-                print("!!! Error updating favorites array for \(userId): \(error)")
-                self.errorMessage = "Failed to update favorites."
-                DispatchQueue.main.asyncAfter(deadline: .now() + 3) { self.errorMessage = nil } // Auto-clear error.
+    /// Checks if the current user has RSVP'd to a specific opportunity.
+    func isRsvped(opportunityId: String?) -> Bool {
+        guard let id = opportunityId, let user = Auth.auth().currentUser, !user.isAnonymous else { return false }
+        return rsvpedOpportunityIds.contains(id)
+    }
+
+    /// Toggles the RSVP status for the current user. Includes Optimistic UI and Revert on Failure.
+    /// Uses counter trigger via didSet on rsvpedOpportunityIds.
+    func toggleRSVP(opportunity: Opportunity) {
+        // 1. Checks
+        guard let user = Auth.auth().currentUser, !user.isAnonymous else { self.rsvpErrorMessage = "Log in to RSVP."; clearErrorAfterDelay(.rsvp); return }
+        guard !opportunity.hasEnded else { self.rsvpErrorMessage = "Event ended."; clearErrorAfterDelay(.rsvp); return }
+        let userId = user.uid; let opportunityId = opportunity.id
+        let isCurrentlyRsvped = self.rsvpedOpportunityIds.contains(opportunityId) // Check state BEFORE optimistic update
+        if !isCurrentlyRsvped && opportunity.isFull { self.rsvpErrorMessage = "Event is full."; clearErrorAfterDelay(.rsvp); return }
+
+        // 2. OPTIMISTIC UI UPDATE (Assigning New Set)
+        // objectWillChange.send() // Not needed if using didSet on @Published var
+        var updatedSet = self.rsvpedOpportunityIds // Create mutable copy
+        if isCurrentlyRsvped { updatedSet.remove(opportunityId); print("Optimistic UI: Removing RSVP ID \(opportunityId)") }
+        else { updatedSet.insert(opportunityId); print("Optimistic UI: Inserting RSVP ID \(opportunityId)") }
+        self.rsvpedOpportunityIds = updatedSet // Assign new set back - triggers didSet which increments counter
+
+        // 3. Start UI Loading State
+        isTogglingRsvp = true; rsvpErrorMessage = nil
+
+        // 4. Prepare Batch Write (Based on state BEFORE optimistic update)
+        let batch = db.batch()
+        let oppDocRef = db.collection("volunteeringOpportunities").document(opportunityId)
+        let userDocRef = db.collection("users").document(userId)
+        if isCurrentlyRsvped { // Prepare REMOVE batch
+            print("Preparing REMOVE RSVP (Batch)...")
+            batch.updateData(["attendeeIds": FieldValue.arrayRemove([userId])], forDocument: oppDocRef)
+            batch.setData(["rsvpedOpportunityIds": FieldValue.arrayRemove([opportunityId])], forDocument: userDocRef, merge: true)
+        } else { // Prepare ADD batch
+             print("Preparing ADD RSVP (Batch)...")
+            batch.updateData(["attendeeIds": FieldValue.arrayUnion([userId])], forDocument: oppDocRef)
+            batch.setData(["rsvpedOpportunityIds": FieldValue.arrayUnion([opportunityId])], forDocument: userDocRef, merge: true)
+        }
+
+        // 5. Commit the Batch
+        print("Committing RSVP batch write. UserID: \(userId), OpportunityID: \(opportunityId)")
+        batch.commit { [weak self] error in
+            guard let self = self else { return }; self.isTogglingRsvp = false // Stop loading
+
+            if let error = error { // --- FAILURE ---
+                let nsError = error as NSError
+                print("!!! BATCH COMMIT FAILED !!! Error: \(error.localizedDescription) Code: \(nsError.code)")
+                self.rsvpErrorMessage = "Failed to update RSVP status."; self.clearErrorAfterDelay(.rsvp)
 
                 // --- REVERT OPTIMISTIC UPDATE ON FAILURE ---
-                // Restore the local state to what it was *before* the optimistic update attempt.
-                print("Reverting optimistic favorite update due to Firestore error.")
-                if isCurrentlyFavorite {
-                    // Failed to remove, so add it back locally.
-                    self.favoriteOpportunityIds.insert(opportunityId)
-                } else {
-                    // Failed to add, so remove it locally.
-                    self.favoriteOpportunityIds.remove(opportunityId)
+                print("Reverting optimistic RSVP update due to Firestore error.")
+                // objectWillChange.send() // Notify before reverting - handled by didSet
+                var revertedSet = self.rsvpedOpportunityIds // Get current (wrong) state
+                if isCurrentlyRsvped { // If remove failed, add ID back locally
+                    print("Revert: Inserting RSVP ID \(opportunityId) back")
+                    revertedSet.insert(opportunityId)
+                } else { // If add failed, remove ID locally
+                    print("Revert: Removing RSVP ID \(opportunityId) back")
+                    revertedSet.remove(opportunityId)
                 }
+                self.rsvpedOpportunityIds = revertedSet // Assign reverted set (triggers didSet again)
+                print("Reverted state. Final local count: \(self.rsvpedOpportunityIds.count)")
                 // --- End Revert ---
 
-            } else {
-                // Firestore update succeeded.
-                print("Firestore favorites array updated successfully for \(userId).")
-                // The optimistic UI update already reflected the change. The Firestore listener
-                // will eventually receive this update too, confirming the state. No further local change needed here.
+            } else { // --- SUCCESS ---
+                print(">>> BATCH COMMIT SUCCEEDED <<<"); self.rsvpErrorMessage = nil
+                // Optimistic update matches server. Listener confirmation might follow.
+                // Counter already incremented by optimistic update.
             }
-        } // End setData callback
-    } // End toggleFavorite
+            // Removed Force Refresh
+        } // End Commit Completion Handler
+    } // End toggleRSVP
+
+
+    // MARK: - Attendance Logic
+
+    /// Records attendance for a specific attendee. Requires manager role.
+    func recordAttendance(opportunityId: String, attendeeId: String, status: String?) {
+        print("--- recordAttendance called - Opp: \(opportunityId), Att: \(attendeeId), Status: \(status ?? "nil")")
+        guard isCurrentUserAManager else { self.attendanceErrorMessage = "Permission Denied."; clearErrorAfterDelay(.attendance); return }
+        guard Auth.auth().currentUser != nil else { self.attendanceErrorMessage = "Valid session required."; return }
+        isUpdatingAttendance = true; attendanceErrorMessage = nil // Start loading
+
+        let oppDocRef = db.collection("volunteeringOpportunities").document(opportunityId)
+        let fieldPath = "attendanceRecords.\(attendeeId)" // Dot notation path
+        let updatePayload: [String: Any] = [fieldPath: status != nil ? status! : FieldValue.delete()] // Use status or delete()
+
+        print("Attempting attendance update: \(updatePayload)")
+        oppDocRef.updateData(updatePayload) { [weak self] error in // Perform update
+            guard let self = self else { return }; self.isUpdatingAttendance = false // Stop loading
+            if let error = error {
+                let nsError = error as NSError; self.attendanceErrorMessage = "Error updating attendance."
+                 print("!!! Attendance Update Error: \(error.localizedDescription) (Code: \(nsError.code))"); self.clearErrorAfterDelay(.attendance)
+            } else { print(">>> Attendance recorded successfully."); self.attendanceErrorMessage = nil }
+        }
+    }
+
+    // MARK: - Manager Remove Attendee Logic
+
+    /// Allows a manager to remove a specific attendee from an event via Batch Write.
+    func managerRemoveAttendee(opportunityId: String, attendeeIdToRemove: String) {
+        print("--- managerRemoveAttendee called - Opp: \(opportunityId), Attendee: \(attendeeIdToRemove)")
+        guard isCurrentUserAManager else { self.removeAttendeeErrorMessage = "Permission Denied."; clearErrorAfterDelay(.removeAttendee); return }
+        guard Auth.auth().currentUser != nil else { self.removeAttendeeErrorMessage = "Valid session required."; return }
+        isRemovingAttendee = true; removeAttendeeErrorMessage = nil // Start loading
+
+        let batch = db.batch()
+        let oppDocRef = db.collection("volunteeringOpportunities").document(opportunityId)
+        let userDocRef = db.collection("users").document(attendeeIdToRemove)
+        let attendanceFieldPath = "attendanceRecords.\(attendeeIdToRemove)"
+
+        print("Preparing batch to remove attendee \(attendeeIdToRemove)...")
+        batch.updateData(["attendeeIds": FieldValue.arrayRemove([attendeeIdToRemove])], forDocument: oppDocRef) // Action 1
+        batch.setData(["rsvpedOpportunityIds": FieldValue.arrayRemove([opportunityId])], forDocument: userDocRef, merge: true) // Action 2
+        batch.updateData([attendanceFieldPath: FieldValue.delete()], forDocument: oppDocRef) // Action 3
+
+        // Commit Batch
+        batch.commit { [weak self] error in
+             guard let self = self else { return }; self.isRemovingAttendee = false // Stop loading indicator
+             if let error = error {
+                 let nsError = error as NSError; print("!!! MANAGER REMOVE ATTENDEE BATCH FAILED !!! Error: \(error) Code: \(nsError.code)")
+                 self.removeAttendeeErrorMessage = "Failed to remove attendee."; self.clearErrorAfterDelay(.removeAttendee)
+             } else { print(">>> MANAGER REMOVE ATTENDEE BATCH SUCCEEDED <<<"); self.removeAttendeeErrorMessage = nil } // Clear error on success
+             // Listener updates should handle UI refresh.
+         }
+    }
 
 } // End Class OpportunityViewModel
+
+
+// MARK: - Helper Extensions

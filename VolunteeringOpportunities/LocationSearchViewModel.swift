@@ -16,17 +16,20 @@ class LocationSearchViewModel: NSObject, ObservableObject, MKLocalSearchComplete
         searchCompleter = MKLocalSearchCompleter()
         super.init()
         searchCompleter.delegate = self // Set this class as the delegate
+        print("--- LocationSearchViewModel Initialized ---") // <-- ADD INIT LOG
 
         // Use Combine to debounce search query updates
         cancellable = $queryFragment
-            .debounce(for: .milliseconds(300), scheduler: RunLoop.main) // Wait 300ms after user stops typing
-            .removeDuplicates() // Don't search if the text hasn't changed
+            .debounce(for: .milliseconds(300), scheduler: RunLoop.main) // Wait 300ms
+            .removeDuplicates() // Don't search if text hasn't changed
             .sink { [weak self] newQuery in
                 guard let self = self else { return }
+                print("--- Query Fragment Sink Received: '\(newQuery)' ---") // <-- ADD SINK LOG
                 if !newQuery.isEmpty {
-                    print("Searching for: \(newQuery)")
+                    print("--- Setting searchCompleter.queryFragment to: '\(newQuery)' ---") // <-- ADD SEARCH LOG
                     self.searchCompleter.queryFragment = newQuery
                 } else {
+                    print("--- Query Fragment Empty, Clearing Results ---") // <-- ADD CLEAR LOG
                     // Clear results if query is empty
                     self.searchResults = []
                 }
@@ -37,15 +40,19 @@ class LocationSearchViewModel: NSObject, ObservableObject, MKLocalSearchComplete
 
     func completerDidUpdateResults(_ completer: MKLocalSearchCompleter) {
         // Update the published results when the completer finds matches
-        // Filter out results without subtitles if desired (often more specific)
-        // self.searchResults = completer.results.filter { !$0.subtitle.isEmpty }
         self.searchResults = completer.results
-        print("Found \(searchResults.count) results.")
+        // --- ADD RESULTS LOG ---
+        print("--- completerDidUpdateResults --- Found \(searchResults.count) results.")
+        // Optional: Log the actual results
+        // searchResults.forEach { print("    - \($0.title), \($0.subtitle)") }
+        // --- END LOG ---
     }
 
     func completer(_ completer: MKLocalSearchCompleter, didFailWithError error: Error) {
         // Handle search errors (e.g., network issues)
-        print("Location search failed with error: \(error.localizedDescription)")
+        // --- ADD ERROR LOG ---
+        print("--- completer didFailWithError --- Error: \(error.localizedDescription)")
+        // --- END LOG ---
         self.searchResults = [] // Clear results on error
     }
 }

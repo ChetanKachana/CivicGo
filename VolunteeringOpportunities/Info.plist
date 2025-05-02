@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>CFBundleURLTypes</key>
+	<array>
+		<dict>
+			<key>CFBundleURLSchemes</key>
+			<array>
+				<string>com.googleusercontent.apps.538483098150-pft53203rjp5f66c1qk6evo7jl7ngasd</string>
+			</array>
+			<key>CFBundleURLName</key>
+			<string>Chey.VolunteeringOpportunities</string>
+		</dict>
+	</array>
+</dict>
+</plist>

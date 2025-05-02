@@ -7,6 +7,8 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		FE2FEFC82DB591A300EA39B6 /* GoogleSignIn in Frameworks */ = {isa = PBXBuildFile; productRef = FE2FEFC72DB591A300EA39B6 /* GoogleSignIn */; };
+		FE2FEFCA2DB591A300EA39B6 /* GoogleSignInSwift in Frameworks */ = {isa = PBXBuildFile; productRef = FE2FEFC92DB591A300EA39B6 /* GoogleSignInSwift */; };
 		FE5F0AED2DAC2B92006BEE97 /* FirebaseAuth in Frameworks */ = {isa = PBXBuildFile; productRef = FE5F0AEC2DAC2B92006BEE97 /* FirebaseAuth */; };
 		FE5F0AEF2DAC2B92006BEE97 /* FirebaseFirestore in Frameworks */ = {isa = PBXBuildFile; productRef = FE5F0AEE2DAC2B92006BEE97 /* FirebaseFirestore */; };
 		FE5F0AF12DAC2B92006BEE97 /* FirebaseFirestoreCombine-Community in Frameworks */ = {isa = PBXBuildFile; productRef = FE5F0AF02DAC2B92006BEE97 /* FirebaseFirestoreCombine-Community */; };
@@ -29,15 +31,41 @@
 		};
 /* End PBXContainerItemProxy section */
 
+/* Begin PBXCopyFilesBuildPhase section */
+		FEF60D092DB00C1500DF32B5 /* Embed Frameworks */ = {
+			isa = PBXCopyFilesBuildPhase;
+			buildActionMask = 2147483647;
+			dstPath = "";
+			dstSubfolderSpec = 10;
+			files = (
+			);
+			name = "Embed Frameworks";
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXCopyFilesBuildPhase section */
+
 /* Begin PBXFileReference section */
 		FE5F0ABE2DAC2A91006BEE97 /* VolunteeringOpportunities.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = VolunteeringOpportunities.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		FE5F0ACB2DAC2A95006BEE97 /* VolunteeringOpportunitiesTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = VolunteeringOpportunitiesTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		FE5F0AD52DAC2A95006BEE97 /* VolunteeringOpportunitiesUITests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = VolunteeringOpportunitiesUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
+/* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
+		FEF60D0B2DB00C3400DF32B5 /* Exceptions for "VolunteeringOpportunities" folder in "VolunteeringOpportunities" target */ = {
+			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
+			membershipExceptions = (
+				Info.plist,
+			);
+			target = FE5F0ABD2DAC2A91006BEE97 /* VolunteeringOpportunities */;
+		};
+/* End PBXFileSystemSynchronizedBuildFileExceptionSet section */
+
 /* Begin PBXFileSystemSynchronizedRootGroup section */
 		FE5F0AC02DAC2A91006BEE97 /* VolunteeringOpportunities */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
+			exceptions = (
+				FEF60D0B2DB00C3400DF32B5 /* Exceptions for "VolunteeringOpportunities" folder in "VolunteeringOpportunities" target */,
+			);
 			path = VolunteeringOpportunities;
 			sourceTree = "<group>";
 		};
@@ -58,7 +86,9 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				FE2FEFCA2DB591A300EA39B6 /* GoogleSignInSwift in Frameworks */,
 				FE5F0AF12DAC2B92006BEE97 /* FirebaseFirestoreCombine-Community in Frameworks */,
+				FE2FEFC82DB591A300EA39B6 /* GoogleSignIn in Frameworks */,
 				FE5F0AED2DAC2B92006BEE97 /* FirebaseAuth in Frameworks */,
 				FE5F0AEF2DAC2B92006BEE97 /* FirebaseFirestore in Frameworks */,
 			);
@@ -87,6 +117,7 @@
 				FE5F0AC02DAC2A91006BEE97 /* VolunteeringOpportunities */,
 				FE5F0ACE2DAC2A95006BEE97 /* VolunteeringOpportunitiesTests */,
 				FE5F0AD82DAC2A95006BEE97 /* VolunteeringOpportunitiesUITests */,
+				FEF60D042DB00C0A00DF32B5 /* Frameworks */,
 				FE5F0ABF2DAC2A91006BEE97 /* Products */,
 			);
 			sourceTree = "<group>";
@@ -101,6 +132,13 @@
 			name = Products;
 			sourceTree = "<group>";
 		};
+		FEF60D042DB00C0A00DF32B5 /* Frameworks */ = {
+			isa = PBXGroup;
+			children = (
+			);
+			name = Frameworks;
+			sourceTree = "<group>";
+		};
 /* End PBXGroup section */
 
 /* Begin PBXNativeTarget section */
@@ -111,6 +149,7 @@
 				FE5F0ABA2DAC2A91006BEE97 /* Sources */,
 				FE5F0ABB2DAC2A91006BEE97 /* Frameworks */,
 				FE5F0ABC2DAC2A91006BEE97 /* Resources */,
+				FEF60D092DB00C1500DF32B5 /* Embed Frameworks */,
 			);
 			buildRules = (
 			);
@@ -124,6 +163,8 @@
 				FE5F0AEC2DAC2B92006BEE97 /* FirebaseAuth */,
 				FE5F0AEE2DAC2B92006BEE97 /* FirebaseFirestore */,
 				FE5F0AF02DAC2B92006BEE97 /* FirebaseFirestoreCombine-Community */,
+				FE2FEFC72DB591A300EA39B6 /* GoogleSignIn */,
+				FE2FEFC92DB591A300EA39B6 /* GoogleSignInSwift */,
 			);
 			productName = VolunteeringOpportunities;
 			productReference = FE5F0ABE2DAC2A91006BEE97 /* VolunteeringOpportunities.app */;
@@ -209,6 +250,7 @@
 			minimizedProjectReferenceProxies = 1;
 			packageReferences = (
 				FE5F0AEB2DAC2B92006BEE97 /* XCRemoteSwiftPackageReference "firebase-ios-sdk" */,
+				FE2FEFC62DB591A300EA39B6 /* XCRemoteSwiftPackageReference "GoogleSignIn-iOS" */,
 			);
 			preferredProjectObjectVersion = 77;
 			productRefGroup = FE5F0ABF2DAC2A91006BEE97 /* Products */;
@@ -408,10 +450,15 @@
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				ASSETCATALOG_COMPILER_INCLUDE_ALL_APPICON_ASSETS = NO;
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = T8J393GKX3;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = VolunteeringOpportunities/Info.plist;
+				INFOPLIST_KEY_CFBundleDisplayName = CivicGo;
+				INFOPLIST_KEY_NSLocationAlwaysAndWhenInUseUsageDescription = "Requires location access to display relevant map information.";
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
 				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
 				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
@@ -435,10 +482,15 @@
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				ASSETCATALOG_COMPILER_INCLUDE_ALL_APPICON_ASSETS = NO;
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = T8J393GKX3;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = VolunteeringOpportunities/Info.plist;
+				INFOPLIST_KEY_CFBundleDisplayName = CivicGo;
+				INFOPLIST_KEY_NSLocationAlwaysAndWhenInUseUsageDescription = "Requires location access to display relevant map information.";
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
 				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
 				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
@@ -567,6 +619,14 @@
 /* End XCConfigurationList section */
 
 /* Begin XCRemoteSwiftPackageReference section */
+		FE2FEFC62DB591A300EA39B6 /* XCRemoteSwiftPackageReference "GoogleSignIn-iOS" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/google/GoogleSignIn-iOS";
+			requirement = {
+				kind = upToNextMajorVersion;
+				minimumVersion = 8.0.0;
+			};
+		};
 		FE5F0AEB2DAC2B92006BEE97 /* XCRemoteSwiftPackageReference "firebase-ios-sdk" */ = {
 			isa = XCRemoteSwiftPackageReference;
 			repositoryURL = "https://github.com/firebase/firebase-ios-sdk";
@@ -578,6 +638,16 @@
 /* End XCRemoteSwiftPackageReference section */
 
 /* Begin XCSwiftPackageProductDependency section */
+		FE2FEFC72DB591A300EA39B6 /* GoogleSignIn */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = FE2FEFC62DB591A300EA39B6 /* XCRemoteSwiftPackageReference "GoogleSignIn-iOS" */;
+			productName = GoogleSignIn;
+		};
+		FE2FEFC92DB591A300EA39B6 /* GoogleSignInSwift */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = FE2FEFC62DB591A300EA39B6 /* XCRemoteSwiftPackageReference "GoogleSignIn-iOS" */;
+			productName = GoogleSignInSwift;
+		};
 		FE5F0AEC2DAC2B92006BEE97 /* FirebaseAuth */ = {
 			isa = XCSwiftPackageProductDependency;
 			package = FE5F0AEB2DAC2B92006BEE97 /* XCRemoteSwiftPackageReference "firebase-ios-sdk" */;
