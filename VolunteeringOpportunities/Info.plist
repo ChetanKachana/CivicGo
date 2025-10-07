@@ -2,16 +2,24 @@
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
+	<key>NSSupportsLiveActivities</key>
+	<true/>
 	<key>CFBundleURLTypes</key>
 	<array>
 		<dict>
-			<key>CFBundleURLSchemes</key>
-			<array>
-				<string>com.googleusercontent.apps.538483098150-pft53203rjp5f66c1qk6evo7jl7ngasd</string>
-			</array>
 			<key>CFBundleURLName</key>
 			<string>Chey.VolunteeringOpportunities</string>
+			<key>CFBundleURLSchemes</key>
+			<array>
+				<string></string>
+				<string>com.googleusercontent.apps.538483098150-pft53203rjp5f66c1qk6evo7jl7ngasd</string>
+			</array>
 		</dict>
+	</array>
+	<key>UIBackgroundModes</key>
+	<array>
+		<string>fetch</string>
+		<string>processing</string>
 	</array>
 </dict>
 </plist>

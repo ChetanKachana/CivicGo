@@ -56,6 +56,7 @@ struct FavoritesListView: View {
             }
         } // End main VStack
         .navigationTitle("Favorites")
+        
         // Add refreshable if desired for favorites view too
          .refreshable {
              print("Pull to refresh triggered on Favorites list")
@@ -91,7 +92,7 @@ struct FavoritesListView: View {
         .toolbar{
             ToolbarItem(placement: .navigationBarLeading) {
                  if viewModel.isLoading { ProgressView().tint(.primary) }
-                 else if authViewModel.isManager { Image(systemName: "crown.fill").foregroundColor(.orange).accessibilityLabel("Manager Access") }
+                 else if authViewModel.isManager { Image(systemName: "crown.fill").foregroundColor(.indigo).accessibilityLabel("Manager Access") }
              }
         }
         .padding()
@@ -118,6 +119,7 @@ struct FavoritesListView: View {
                 }
             }
         } // End List
+        
         .listStyle(.insetGrouped) // Use insetGrouped style for consistency
     }
 

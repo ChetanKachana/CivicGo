@@ -10,11 +10,13 @@ struct ContentView: View {
             if authViewModel.userSession != nil {
                 // User is LOGGED IN - Show the main app TabView
                 MainTabView()
+                    
             } else {
                 // User is LOGGED OUT - Show the Authentication screen
                 AuthenticationView()
             }
         }
+        
         // ViewModels are already injected by the App struct
     }
 }

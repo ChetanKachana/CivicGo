@@ -20,7 +20,7 @@ struct AuthenticationView: View {
                     .foregroundColor(.accentColor)
                     .padding(.bottom, 10)
 
-                Text("Volunteer Connect") // Replace with your app name
+                Text("CivicGo") // Replace with your app name
                     .font(.system(size: 34, weight: .bold, design: .rounded))
             }
             .padding(.bottom, 60) // More space below branding
@@ -30,27 +30,42 @@ struct AuthenticationView: View {
 
                 // --- Google Sign-In Button ---
                 Button {
-                    authViewModel.signInWithGoogle() // Call Google sign-in action
-                } label: {
-                    HStack {
-                        // Use a standard Google logo if available (add as asset)
-                        // Image("google_logo") // Example if you have the asset
-                        //     .resizable().scaledToFit().frame(height: 22)
-                        // Or use SF Symbol as placeholder
-                        Image(systemName: "g.circle.fill")
-                             .resizable().scaledToFit().frame(height: 22)
-                             .foregroundColor(.white) // Make symbol white if button is colored
+                                    authViewModel.signInWithGoogle() // Call Google sign-in action
+                                } label: {
+                                    HStack {
+                                        // Icon (Using SF Symbol as placeholder)
+                                        Image("googleicon")
+                                             .resizable().scaledToFit().frame(height: 30)
+                                             .clipShape(Circle())
+                                             // Color set by foregroundColor on HStack below
 
-                        Text("Sign in with Google")
-                            .fontWeight(.medium)
-                            .foregroundColor(.white) // White text on colored button
-                    }
-                    .padding(.vertical, 12)
-                    .frame(maxWidth: .infinity) // Make button wide
-                    .background(Color.blue) // Standard Google blue (or use custom)
-                    .cornerRadius(8)
-                }
-                .shadow(radius: 2, y: 1) // Add subtle shadow
+                                        Text("Sign in with Google")
+                                            .fontWeight(.medium)
+                                            // Color set by foregroundColor on HStack below
+                                    }
+                                    .foregroundColor(.secondary) // Set icon and text color to white
+                                    .padding(.vertical, 12) // Vertical padding inside button
+                                    .padding(.horizontal, 12) // Make button wide
+                                    .background(Color.clear) // Set background to black
+                                    .cornerRadius(8) // Round the corners of the background
+                                    // --- Add the Gradient Border Overlay ---
+                                    .overlay(
+                                        RoundedRectangle(cornerRadius: 8) // Shape matching the background
+                                            .stroke( // Apply stroke to the shape's border
+                                                // Define the gradient
+                                                LinearGradient(
+                                                    gradient: Gradient(colors: [.red, .yellow, .green, .blue]), // Your desired colors
+                                                    startPoint: .leading, // Gradient direction: Left
+                                                    endPoint: .trailing   // Gradient direction: Right
+                                                ),
+                                                lineWidth: 2
+                                                    // Adjust border thickness as needed
+                                            )
+                                            .opacity(75)
+                                    )
+                                    // --- End Gradient Border Overlay ---
+                                }
+                                .shadow(color: .black.opacity(0.2), radius: 3, y: 1) // Optional subtle shadow
 
                 // --- Anonymous Browsing Button ---
                 Button {
@@ -82,6 +97,9 @@ struct AuthenticationView: View {
 
             Spacer() // Pushes buttons up from bottom edge
             Spacer() // Add more space at bottom
+            Text("In partnership with The Youth Action Council")
+                .font(.caption)
+                .foregroundStyle(.secondary)
 
         } // End main VStack
         // Optional background

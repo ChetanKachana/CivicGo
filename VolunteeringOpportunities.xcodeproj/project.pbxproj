@@ -12,6 +12,7 @@
 		FE5F0AED2DAC2B92006BEE97 /* FirebaseAuth in Frameworks */ = {isa = PBXBuildFile; productRef = FE5F0AEC2DAC2B92006BEE97 /* FirebaseAuth */; };
 		FE5F0AEF2DAC2B92006BEE97 /* FirebaseFirestore in Frameworks */ = {isa = PBXBuildFile; productRef = FE5F0AEE2DAC2B92006BEE97 /* FirebaseFirestore */; };
 		FE5F0AF12DAC2B92006BEE97 /* FirebaseFirestoreCombine-Community in Frameworks */ = {isa = PBXBuildFile; productRef = FE5F0AF02DAC2B92006BEE97 /* FirebaseFirestoreCombine-Community */; };
+		FEDCD5292DC86CD80067EA2D /* FirebaseStorage in Frameworks */ = {isa = PBXBuildFile; productRef = FEDCD5282DC86CD80067EA2D /* FirebaseStorage */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -32,6 +33,16 @@
 /* End PBXContainerItemProxy section */
 
 /* Begin PBXCopyFilesBuildPhase section */
+		FE319B452DC90664004011EF /* Embed Foundation Extensions */ = {
+			isa = PBXCopyFilesBuildPhase;
+			buildActionMask = 2147483647;
+			dstPath = "";
+			dstSubfolderSpec = 13;
+			files = (
+			);
+			name = "Embed Foundation Extensions";
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 		FEF60D092DB00C1500DF32B5 /* Embed Frameworks */ = {
 			isa = PBXCopyFilesBuildPhase;
 			buildActionMask = 2147483647;
@@ -45,9 +56,11 @@
 /* End PBXCopyFilesBuildPhase section */
 
 /* Begin PBXFileReference section */
+		FE319B2E2DC90661004011EF /* SwiftUI.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = SwiftUI.framework; path = System/Library/Frameworks/SwiftUI.framework; sourceTree = SDKROOT; };
 		FE5F0ABE2DAC2A91006BEE97 /* VolunteeringOpportunities.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = VolunteeringOpportunities.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		FE5F0ACB2DAC2A95006BEE97 /* VolunteeringOpportunitiesTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = VolunteeringOpportunitiesTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		FE5F0AD52DAC2A95006BEE97 /* VolunteeringOpportunitiesUITests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = VolunteeringOpportunitiesUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
+		FE8084052DCFDD03001ADE2A /* WidgetKit.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = WidgetKit.framework; path = System/Library/Frameworks/WidgetKit.framework; sourceTree = SDKROOT; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
@@ -91,6 +104,7 @@
 				FE2FEFC82DB591A300EA39B6 /* GoogleSignIn in Frameworks */,
 				FE5F0AED2DAC2B92006BEE97 /* FirebaseAuth in Frameworks */,
 				FE5F0AEF2DAC2B92006BEE97 /* FirebaseFirestore in Frameworks */,
+				FEDCD5292DC86CD80067EA2D /* FirebaseStorage in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -135,6 +149,8 @@
 		FEF60D042DB00C0A00DF32B5 /* Frameworks */ = {
 			isa = PBXGroup;
 			children = (
+				FE319B2E2DC90661004011EF /* SwiftUI.framework */,
+				FE8084052DCFDD03001ADE2A /* WidgetKit.framework */,
 			);
 			name = Frameworks;
 			sourceTree = "<group>";
@@ -150,6 +166,7 @@
 				FE5F0ABB2DAC2A91006BEE97 /* Frameworks */,
 				FE5F0ABC2DAC2A91006BEE97 /* Resources */,
 				FEF60D092DB00C1500DF32B5 /* Embed Frameworks */,
+				FE319B452DC90664004011EF /* Embed Foundation Extensions */,
 			);
 			buildRules = (
 			);
@@ -165,6 +182,7 @@
 				FE5F0AF02DAC2B92006BEE97 /* FirebaseFirestoreCombine-Community */,
 				FE2FEFC72DB591A300EA39B6 /* GoogleSignIn */,
 				FE2FEFC92DB591A300EA39B6 /* GoogleSignInSwift */,
+				FEDCD5282DC86CD80067EA2D /* FirebaseStorage */,
 			);
 			productName = VolunteeringOpportunities;
 			productReference = FE5F0ABE2DAC2A91006BEE97 /* VolunteeringOpportunities.app */;
@@ -459,6 +477,7 @@
 				INFOPLIST_FILE = VolunteeringOpportunities/Info.plist;
 				INFOPLIST_KEY_CFBundleDisplayName = CivicGo;
 				INFOPLIST_KEY_NSLocationAlwaysAndWhenInUseUsageDescription = "Requires location access to display relevant map information.";
+				INFOPLIST_KEY_NSSupportsLiveActivities = YES;
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
 				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
 				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
@@ -491,6 +510,7 @@
 				INFOPLIST_FILE = VolunteeringOpportunities/Info.plist;
 				INFOPLIST_KEY_CFBundleDisplayName = CivicGo;
 				INFOPLIST_KEY_NSLocationAlwaysAndWhenInUseUsageDescription = "Requires location access to display relevant map information.";
+				INFOPLIST_KEY_NSSupportsLiveActivities = YES;
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
 				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
 				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
@@ -662,6 +682,11 @@
 			isa = XCSwiftPackageProductDependency;
 			package = FE5F0AEB2DAC2B92006BEE97 /* XCRemoteSwiftPackageReference "firebase-ios-sdk" */;
 			productName = "FirebaseFirestoreCombine-Community";
+		};
+		FEDCD5282DC86CD80067EA2D /* FirebaseStorage */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = FE5F0AEB2DAC2B92006BEE97 /* XCRemoteSwiftPackageReference "firebase-ios-sdk" */;
+			productName = FirebaseStorage;
 		};
 /* End XCSwiftPackageProductDependency section */
 	};

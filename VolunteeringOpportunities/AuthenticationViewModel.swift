@@ -9,10 +9,11 @@ import GoogleSignIn // Still needed for Google Sign-In
 // Manages authentication state using Firebase for Anonymous and Google providers.
 // Fetches associated user data (role, username) for the current user from Firestore.
 // Provides a function to fetch usernames for arbitrary user IDs.
+// Includes enhanced logging for user document creation and async username update with uniqueness check.
 class AuthenticationViewModel: ObservableObject {
     // MARK: - Published Properties
     @Published var userSession: User? // Holds the logged-in Firebase User object (anonymous or Google)
-    @Published var isLoading: Bool = false // General loading state for sign-in/out actions
+    @Published var isLoading: Bool = false // General loading state for sign-in/out/update actions
     @Published var errorMessage: String?    // Displays errors to the user
     @Published var userRole: String?        // Stores the role string ("manager", "user", etc.) fetched from Firestore for current user
     @Published var username: String?        // Stores the current user's display name fetched/updated in Firestore
@@ -47,42 +48,41 @@ class AuthenticationViewModel: ObservableObject {
     /// Sets up a Combine pipeline to automatically update `isManager` whenever `userRole` changes.
     private func setupBindings() {
         $userRole
-            .map { role -> Bool in // Determine manager status based on role string
+            .map { role -> Bool in
                 let managerStatus = role == "manager"
-                if role != nil { // Log only when role is actually set/changed
-                    print("Derived isManager status: \(managerStatus) (from role: \(role ?? "nil"))")
-                }
+                // Optional: Log only when role is actually set/changed for less verbosity
+                // if role != nil { print("Derived isManager status: \(managerStatus) (from role: \(role ?? "nil"))") }
                 return managerStatus
             }
-            .receive(on: RunLoop.main) // Ensure UI updates happen on the main thread
-            .assign(to: \.isManager, on: self) // Assign the result to the isManager property
-            .store(in: &cancellables) // Store the subscription reference
+            .receive(on: RunLoop.main)
+            .assign(to: \.isManager, on: self)
+            .store(in: &cancellables)
     }
 
     /// Establishes a listener for Firebase Authentication state changes.
-    /// When the user logs in or out, this triggers updates to userSession and related user data fetching.
     func listenToAuthState() {
-        // Remove existing listener first to prevent duplicates
         if let handle = authStateHandler { Auth.auth().removeStateDidChangeListener(handle) }
 
         authStateHandler = Auth.auth().addStateDidChangeListener { [weak self] (auth, user) in
             guard let self = self else { return }
-            let previousUID = self.userSession?.uid // Store previous UID for comparison
+            let previousUID = self.userSession?.uid
             print("Auth State Changed Listener Fired. New User UID: \(user?.uid ?? "nil")")
 
-            // --- User Session Update ---
             // Update userSession only if the user actually changed
             if previousUID != user?.uid {
                  self.userSession = user
                  print("Updated userSession property.")
             }
 
-            // --- User Data Fetching Logic (Role & Username) ---
-            self.userDataListener?.remove(); self.userDataListener = nil // Stop listening for previous user's data
-            // Reset local role and username state whenever auth changes
-            if self.userRole != nil { self.userRole = nil }
-            if self.username != nil { self.username = nil } // Reset username
-            print("Cleared previous user data listener and state (role, username).")
+            // Clean up previous user's Firestore listener and reset role/username state
+            self.userDataListener?.remove(); self.userDataListener = nil
+            if self.userRole != nil || self.username != nil {
+                 Task { @MainActor in // Ensure UI updates are on main thread
+                     self.userRole = nil
+                     self.username = nil
+                     print("Cleared previous user data listener and state (role, username).")
+                 }
+            }
 
             // If a user is logged in, fetch their data
             if let currentUser = user {
@@ -91,14 +91,15 @@ class AuthenticationViewModel: ObservableObject {
                     self.listenForUserData(userId: currentUser.uid)
                 } else { // Handle anonymous user state
                     print("Anonymous user \(currentUser.uid) detected. Setting defaults.")
-                    self.userRole = "anonymous" // Set role explicitly for anonymous state
-                    self.username = "Guest"    // Set default guest username
-                    self.isManager = false    // Anonymous users cannot be managers
+                     Task { @MainActor in // Ensure UI updates are on main thread
+                         self.userRole = "anonymous"
+                         self.username = "Guest"
+                         self.isManager = false
+                     }
                 }
             } else { // No user logged in (logged out state)
                 print("No user detected (logged out state). Role/Username remain nil.")
             }
-            // --- End User Data Fetching Logic ---
         }
     }
 
@@ -107,110 +108,90 @@ class AuthenticationViewModel: ObservableObject {
         let userDocRef = db.collection("users").document(userId)
         print("Attaching Firestore user data listener to path: \(userDocRef.path)")
 
-        // Use includeMetadataChanges: false to potentially reduce extra triggers from cache/server sync differences
         userDataListener = userDocRef.addSnapshotListener(includeMetadataChanges: false) { [weak self] documentSnapshot, error in
-            guard let self = self else { return }
-            let logTimestamp = Date().timeIntervalSince1970 // For detailed logging
-            print("[\(logTimestamp)] AUTH VIEW MODEL - User Data Listener Triggered for \(userId)")
+            // Ensure updates happen on the main actor context
+            Task { @MainActor in
+                guard let self = self else { return }
 
-            if let error = error {
-                print("[\(logTimestamp)] !!! Listener Error: \(error.localizedDescription)")
-                if self.userRole != "user" { self.userRole = "user" } // Default role on error
-                if self.username != nil { self.username = nil }
-                print("[\(logTimestamp)] ==============================================")
-                return
-            }
+                if let error = error {
+                    print("!!! Listener Error: \(error.localizedDescription)")
+                    if self.userRole != "user" { self.userRole = "user" } // Default role on error
+                    if self.username != nil { self.username = nil }
+                    return
+                }
 
-            guard let document = documentSnapshot else {
-                 print("[\(logTimestamp)] User data listener documentSnapshot was nil.")
-                 if self.userRole != "user" { self.userRole = "user" } // Default role
-                 if self.username != nil { self.username = nil }      // Clear username
-                 print("[\(logTimestamp)] ==============================================")
-                 return
-            }
+                guard let document = documentSnapshot else {
+                     print("User data listener documentSnapshot was nil.")
+                     if self.userRole != "user" { self.userRole = "user" }
+                     if self.username != nil { self.username = nil }
+                     return
+                }
 
-            // Log metadata for debugging listener triggers
-            let hasPendingWrites = document.metadata.hasPendingWrites
-            let source = hasPendingWrites ? "Local Cache" : "Server"
-            print("[\(logTimestamp)] Snapshot Metadata: Source=\(source), hasPendingWrites=\(hasPendingWrites), Exists=\(document.exists)")
+                var role: String? = nil
+                var fetchedUsername: String? = nil
 
-            var role: String? = nil
-            var fetchedUsername: String? = nil
+                if document.exists, let data = document.data() {
+                     role = data["role"] as? String ?? "user"
+                     fetchedUsername = data["username"] as? String
+                     // print("User document exists. Parsed role: '\(role ?? "nil")', Parsed username: '\(fetchedUsername ?? "nil")'")
+                     if let nameToCache = fetchedUsername?.nilIfEmpty { self.usernameCache[userId] = nameToCache }
+                } else {
+                     print("User document \(userId) does not exist. Assuming 'user' role, nil username.")
+                     role = "user"; fetchedUsername = nil
+                }
 
-            if document.exists, let data = document.data() {
-                 // Document exists, parse fields safely
-                 role = data["role"] as? String ?? "user" // Default role to 'user' if missing/invalid
-                 fetchedUsername = data["username"] as? String // Username is optional
-                 print("[\(logTimestamp)] User document exists. Parsed role: '\(role ?? "nil")', Parsed username: '\(fetchedUsername ?? "nil")'")
-
-                 // --- Update Cache for Current User ---
-                 if let nameToCache = fetchedUsername?.nilIfEmpty {
-                    self.usernameCache[userId] = nameToCache
-                    print("[\(logTimestamp)] Updated username cache for current user.")
-                 }
-                 // --- End Update Cache ---
-
-            } else {
-                 // Document doesn't exist
-                 print("[\(logTimestamp)] User document \(userId) does not exist. Assuming 'user' role, nil username.")
-                 role = "user"; fetchedUsername = nil // Default if doc missing
-            }
-
-            // --- Compare and Update Published Properties ---
-             // Update role only if it actually changed
-             if self.userRole != role {
-                  self.userRole = role
-                  print("[\(logTimestamp)] ---> User role updated in ViewModel.")
-             }
-             // Update username only if it actually changed
-             if self.username != fetchedUsername {
-                  self.username = fetchedUsername
-                  print("[\(logTimestamp)] ---> Username updated in ViewModel.")
-             }
-
-            print("[\(logTimestamp)] User Data listener processed. Final Role: \(self.userRole ?? "nil"), Username: \(self.username ?? "nil")")
-            print("[\(logTimestamp)] ==============================================")
+                 if self.userRole != role { self.userRole = role }
+                 if self.username != fetchedUsername { self.username = fetchedUsername }
+                 // print("User Data listener processed. Final Role: \(self.userRole ?? "nil"), Username: \(self.username ?? "nil")")
+            } // End Task @MainActor
         }
     }
 
-    // MARK: - User Document Handling
+    // MARK: - User Document Handling (Enhanced Logging)
 
     /// Creates or merges user data in Firestore after signup or login.
-    /// Ensures essential fields like role and username are present.
     private func createUserDocument(userId: String, email: String?, username: String? = nil, displayName: String? = nil) {
         let userDocRef = db.collection("users").document(userId)
 
-        // Derive initial username logic: Use passed username > Google display name > email prefix > default "User_..."
         let derivedUsername = username?.nilIfEmpty ?? displayName?.nilIfEmpty ?? email?.components(separatedBy: "@").first?.nilIfEmpty ?? "User_\(userId.prefix(4))"
+        // Ensure minimum length for username based on rules
+        let finalUsername = derivedUsername.count >= 3 ? derivedUsername : "User_\(userId.prefix(8))" // Ensure >= 3 chars
 
-        // Prepare data, ensuring required fields for rules are included
-        // Ensure keys match exactly what your Security Rules expect on create/update
+        // --- Prepare data for Firestore ---
         let userData: [String: Any] = [
-            "email": email ?? "",            // Store email if available from provider
-            "username": derivedUsername,     // Use derived username
-            "role": "user",                  // Default role for new/merged users
-            "createdAt": FieldValue.serverTimestamp(), // Use server timestamp for creation/update time
-            "favoriteOpportunityIds": FieldValue.arrayUnion([]), // Ensure array exists using arrayUnion([])
-            "rsvpedOpportunityIds": FieldValue.arrayUnion([])    // Ensure array exists using arrayUnion([])
+            "email": email?.nilIfEmpty as Any, // Send null if email is nil or empty
+            "username": finalUsername,       // Use final username
+            "role": "user",
+            "createdAt": FieldValue.serverTimestamp(),
+            "favoriteOpportunityIds": [], // Send empty array
+            "rsvpedOpportunityIds": []    // Send empty array
         ]
 
-        print("Creating/Merging Firestore user document for \(userId) with username: '\(derivedUsername)'...")
-        // Use setData WITH MERGE to safely create the document OR update existing fields
-        // without overwriting fields not included in userData (like role if already set to manager).
-        // It also handles creating the array fields correctly if they don't exist.
-        userDocRef.setData(userData, merge: true) { [weak self] error in // Capture self weakly
-            if let error = error {
-                print("!!! Error setting/merging user document data: \(error.localizedDescription)")
-                 // Potentially set errorMessage here if this merge is critical
-                 // DispatchQueue.main.async { self?.errorMessage = "Could not save profile data." }
+        // --- DETAILED LOGGING ---
+        print("--- [createUserDocument] Attempting for UID: \(userId)")
+        print("--- [createUserDocument] Final Derived Username: '\(finalUsername)' (Length: \(finalUsername.count))") // Log final username
+        print("--- [createUserDocument] Provided Email: \(email ?? "nil")")
+        print("--- [createUserDocument] Data to Send: \(userData)")
+        // --- END LOGGING ---
+
+        userDocRef.setData(userData, merge: true) { error in
+            if let err = error {
+                let nsError = err as NSError
+                print("!!! [createUserDocument] ERROR setting/merging user document for \(userId):")
+                print("    Error Description: \(err.localizedDescription)")
+                print("    Domain: \(nsError.domain), Code: \(nsError.code)")
+                print("    UserInfo: \(nsError.userInfo)")
+                // Optionally update UI state on main actor
+                // Task { @MainActor [weak self] in self?.errorMessage = "Profile setup failed..." }
             } else {
-                print("User document data set/merged successfully for \(userId).")
-                 // Update local cache after successful creation/merge
-                 DispatchQueue.main.async { // Ensure cache update is on main thread
-                     self?.usernameCache[userId] = derivedUsername
+                print(">>> [createUserDocument] User document data set/merged successfully for \(userId).")
+                 Task { @MainActor [weak self] in
+                     self?.usernameCache[userId] = finalUsername // Cache the final username
+                     print(">>> [createUserDocument] Updated username cache for \(userId).")
                  }
             }
         }
+        print("--- [createUserDocument] setData call initiated for \(userId). Completion handler pending.")
     }
 
 
@@ -221,220 +202,228 @@ class AuthenticationViewModel: ObservableObject {
         guard Auth.auth().currentUser == nil else {
             print("Skipping anonymous sign-in: User session already exists (\(Auth.auth().currentUser?.uid ?? "N/A"))."); return
         }
-        isLoading = true; errorMessage = nil
+        Task { @MainActor in isLoading = true; errorMessage = nil }
         print("Attempting anonymous sign-in...")
         Auth.auth().signInAnonymously { [weak self] (authResult, error) in
-            guard let self = self else { return }; self.isLoading = false // Stop loading
-            if let error = error {
-                self.errorMessage = "Anonymous Sign In Failed: \(error.localizedDescription)"
-                print("!!! Anonymous Sign In Error: \(error)"); return
+            Task { @MainActor in
+                guard let self = self else { return }; self.isLoading = false
+                if let error = error {
+                    self.errorMessage = "Anonymous Sign In Failed: \(error.localizedDescription)"
+                    print("!!! Anonymous Sign In Error: \(error)"); return
+                }
+                print("Anonymous Sign In Successful. UID: \(authResult?.user.uid ?? "N/A")")
             }
-            print("Anonymous Sign In Successful. UID: \(authResult?.user.uid ?? "N/A")")
-            // Auth state listener handles session update and setting default role/username
         }
     }
 
     /// Initiates the Google Sign-In flow and links it with Firebase Auth.
     func signInWithGoogle() {
-        isLoading = true; errorMessage = nil // Start loading
-        print("Starting Google Sign In flow...")
+        Task { @MainActor in isLoading = true; errorMessage = nil }
+        print("[signInWithGoogle] Starting Google Sign In flow...")
 
-        // 1. Get Client ID from Firebase config
         guard let clientID = FirebaseApp.app()?.options.clientID else {
-            print("!!! Google Sign In Error: Firebase Client ID not found.")
-            errorMessage = "Google Sign-In configuration error."; isLoading = false; return
+             print("!!! Google Sign In Error: Firebase Client ID not found.")
+             Task { @MainActor in errorMessage = "Google Sign-In configuration error."; isLoading = false }
+             return
         }
+        let config = GIDConfiguration(clientID: clientID); GIDSignIn.sharedInstance.configuration = config
 
-        // 2. Configure Google Sign In SDK
-        let config = GIDConfiguration(clientID: clientID)
-        GIDSignIn.sharedInstance.configuration = config
-
-        // 3. Get Root View Controller for presentation
         guard let windowScene = UIApplication.shared.connectedScenes.first as? UIWindowScene,
               let rootViewController = windowScene.windows.first?.rootViewController else {
             print("!!! Google Sign In Error: Could not get root view controller.")
-            errorMessage = "Could not initiate Google Sign-In UI."; isLoading = false; return
+            Task { @MainActor in errorMessage = "Could not initiate Google Sign-In UI."; isLoading = false }
+            return
         }
 
-        // 4. Start Google Sign In flow presented from root view controller
         GIDSignIn.sharedInstance.signIn(withPresenting: rootViewController) { [weak self] result, error in
             guard let self = self else { return }
+            print("[signInWithGoogle] GIDSignIn completion handler fired.")
 
-            // Handle Google SDK sign-in result
             if let error = error {
-                // Don't show error message if user cancelled
-                if (error as NSError).code != GIDSignInError.canceled.rawValue {
-                     self.errorMessage = "Google Sign-In failed."
-                }
-                print("!!! Google Sign In SDK Error: \(error.localizedDescription)"); self.isLoading = false; return
+                 print("!!! [signInWithGoogle] Google Sign In SDK Error: \(error.localizedDescription) Code: \((error as NSError).code)")
+                 if (error as NSError).code != GIDSignInError.canceled.rawValue {
+                      Task { @MainActor in self.errorMessage = "Google Sign-In failed." }
+                 }
+                 Task { @MainActor in self.isLoading = false }; return
             }
 
             guard let user = result?.user, let idToken = user.idToken?.tokenString else {
-                print("!!! Google Sign In Error: Missing user or ID token from Google result.")
-                self.errorMessage = "Google Sign-In data error."; self.isLoading = false; return
+                print("!!! [signInWithGoogle] Google Sign In Error: Missing user or ID token from Google result.")
+                Task { @MainActor in self.errorMessage = "Google Sign-In data error."; self.isLoading = false }; return
             }
+            print("[signInWithGoogle] Successfully obtained Google ID token.")
 
-            // 5. Create Firebase credential using Google ID token
             let credential = GoogleAuthProvider.credential(withIDToken: idToken, accessToken: user.accessToken.tokenString)
 
-            // 6. Sign in to Firebase Authentication with the Google credential
-            print("Attempting Firebase sign in with Google credential...")
+            print("[signInWithGoogle] Attempting Firebase sign in with Google credential...")
             Auth.auth().signIn(with: credential) { [weak self] authResult, error in
-                guard let self = self else { return }; self.isLoading = false // Stop loading AFTER Firebase attempt
+                Task { @MainActor in // Ensure Firebase completion is on MainActor
+                    guard let self = self else { return }
+                    print("[signInWithGoogle] Firebase signIn completion handler fired.")
 
-                if let error = error {
-                    print("!!! Firebase Google Sign In Error: \(error.localizedDescription)")
-                    self.errorMessage = "Failed to link Google account with Firebase." // More specific error?
-                    return
-                }
+                    self.isLoading = false // Stop loading AFTER Firebase attempt completes
 
-                // --- Firebase Sign In with Google SUCCESS ---
-                print("Firebase Google Sign In Successful: \(authResult?.user.uid ?? "N/A")")
-                self.errorMessage = nil // Clear any previous errors
+                    if let error = error {
+                        print("!!! [signInWithGoogle] Firebase Google Sign In Error: \(error.localizedDescription)")
+                        self.errorMessage = "Failed to link Google account with Firebase."
+                        return
+                    }
 
-                // Ensure Firestore user document exists/is updated (uses merge: true)
-                // Pass Google's display name to potentially initialize username
-                self.createUserDocument(
-                    userId: authResult!.user.uid,
-                    email: authResult?.user.email,
-                    displayName: authResult?.user.displayName
-                )
-                // Auth state listener handles the main session update in the UI
-            }
-        }
+                    guard let firebaseUser = authResult?.user else {
+                         print("!!! [signInWithGoogle] Firebase Google Sign In Error: No user returned in authResult.")
+                         self.errorMessage = "Firebase authentication failed."
+                         return
+                    }
+
+                    print(">>> [signInWithGoogle] Firebase Google Sign In Successful: UID: \(firebaseUser.uid), Email: \(firebaseUser.email ?? "N/A"), DisplayName: \(firebaseUser.displayName ?? "N/A")")
+                    self.errorMessage = nil // Clear any previous errors
+
+                    print(">>> [signInWithGoogle] Preparing to call createUserDocument...")
+                    self.createUserDocument( // Call non-async function from MainActor context
+                        userId: firebaseUser.uid,
+                        email: firebaseUser.email,
+                        displayName: firebaseUser.displayName
+                    )
+                    print("<<< [signInWithGoogle] Called createUserDocument.")
+                } // End Task @MainActor for Firebase completion
+            } // End Firebase Auth completion
+        } // End GIDSignIn completion
     }
 
     // MARK: - Sign Out
     /// Signs the user out from Firebase Auth and Google Sign In SDK.
     func signOut() {
         print("Attempting sign out for user: \(userSession?.uid ?? "N/A")...")
-        isLoading = true; errorMessage = nil
+        Task { @MainActor in isLoading = true; errorMessage = nil }
 
-        // Clean up Firestore listener BEFORE signing out
-        userDataListener?.remove(); userDataListener = nil
-        if userRole != nil { userRole = nil } // Reset role state
-        if username != nil { username = nil } // Reset username state
-        print("User data listener removed and role/username state cleared.")
+        Task { @MainActor in // Ensure state clearing is on MainActor
+             userDataListener?.remove(); userDataListener = nil
+             if userRole != nil { userRole = nil }
+             if username != nil { username = nil }
+             print("User data listener removed and role/username state cleared.")
+        }
 
-        // Sign out from Google SDK state if applicable
         GIDSignIn.sharedInstance.signOut()
         print("Signed out from Google SDK.")
 
-        // Sign out from Firebase Auth
         do {
             try Auth.auth().signOut()
             print("Firebase Sign Out Successful")
-            // The Auth state listener (`listenToAuthState`) will automatically handle
-            // the userSession becoming nil and resetting state further if needed.
         } catch let signOutError as NSError {
-            self.errorMessage = "Sign Out Failed: \(signOutError.localizedDescription)"
-            print("!!! Firebase Sign Out Error: \(signOutError)")
+             print("!!! Firebase Sign Out Error: \(signOutError)")
+             Task { @MainActor in self.errorMessage = "Sign Out Failed: \(signOutError.localizedDescription)" }
         }
-        // Stop loading indicator after all sign out attempts
-        self.isLoading = false
+        Task { @MainActor in self.isLoading = false }
     }
 
-    // MARK: - Update Username
-    /// Updates the username for the currently logged-in user in Firestore.
-    func updateUsername(newUsername: String) {
-        // 1. Check Authentication & Get User ID
+    // MARK: - Update Username (with Uniqueness Check)
+
+    /// Updates the username for the currently logged-in user in Firestore, checking for uniqueness first.
+    @MainActor // Ensures UI updates run on the main thread
+    func updateUsername(newUsername: String) async {
+        // 1. Basic Checks & Validation
         guard let user = userSession, !user.isAnonymous else {
-            self.errorMessage = "You must be logged in to change your username."; return
+            self.errorMessage = "You must be logged in to change your username."
+            return
         }
         let userId = user.uid
         let trimmedUsername = newUsername.trimmingCharacters(in: .whitespacesAndNewlines)
 
-        // 2. Validate Input
         guard !trimmedUsername.isEmpty else {
-            self.errorMessage = "Username cannot be empty."; return
+            self.errorMessage = "Username cannot be empty."
+            return
         }
         guard trimmedUsername.count >= 3 && trimmedUsername.count <= 30 else {
              self.errorMessage = "Username must be between 3 and 30 characters."
              return
-         }
+        }
+        if trimmedUsername == self.username {
+            print("Username hasn't changed.")
+            return
+        }
 
-        // 3. Start Loading State
-        isLoading = true // Use general isLoading or create a specific one for username update
+        // 2. Start Loading State
+        isLoading = true
         errorMessage = nil
 
-        // 4. Prepare Firestore Update
-        let userDocRef = db.collection("users").document(userId)
-        let updateData: [String: Any] = ["username": trimmedUsername]
+        // --- 3. Uniqueness Check ---
+        do {
+            print("Checking username uniqueness for '\(trimmedUsername)'...")
+            let querySnapshot = try await db.collection("users")
+                                          .whereField("username", isEqualTo: trimmedUsername)
+                                          .limit(to: 1)
+                                          .getDocuments()
 
-        print("Attempting to update username to '\(trimmedUsername)' for user \(userId)...")
-
-        // 5. Perform Update using updateData (document must exist)
-        userDocRef.updateData(updateData) { [weak self] error in
-            guard let self = self else { return }
-            self.isLoading = false // Stop loading
-
-            if let error = error {
-                 let nsError = error as NSError
-                 print("!!! Firestore Username Update Error: \(error.localizedDescription) (Code: \(nsError.code))")
-                 if nsError.code == FirestoreErrorCode.permissionDenied.rawValue {
-                      self.errorMessage = "Permission denied updating username." // Should not happen with correct rules
-                 } else if nsError.code == FirestoreErrorCode.notFound.rawValue {
-                      self.errorMessage = "User profile not found. Cannot update username." // Should only happen if doc deleted externally
-                 } else {
-                      self.errorMessage = "Failed to update username: \(error.localizedDescription)"
-                 }
-                 // Consider not auto-clearing username update errors immediately
+            if !querySnapshot.isEmpty && querySnapshot.documents[0].documentID != userId {
+                 // Username is taken by someone else
+                 print("!!! Username '\(trimmedUsername)' is already taken by user \(querySnapshot.documents[0].documentID).")
+                 self.errorMessage = "Username already taken. Please choose another."
+                 isLoading = false // Stop loading
+                 return // Exit before updating
             } else {
-                 print(">>> Username updated successfully to '\(trimmedUsername)'")
-                 self.errorMessage = nil // Clear error on success
-                 // The listener (`listenForUserData`) will automatically update the @Published var username
-                 // It will also update the cache via the listener logic.
+                 // Username is unique or belongs to the current user
+                 print("Username '\(trimmedUsername)' is unique or belongs to current user.")
             }
+
+            // --- 4. Perform Update (If uniqueness check passed) ---
+            let userDocRef = db.collection("users").document(userId)
+            let updateData: [String: Any] = ["username": trimmedUsername]
+            print("Attempting to update username to '\(trimmedUsername)' for user \(userId)...")
+
+            try await userDocRef.updateData(updateData)
+
+            print(">>> Username updated successfully to '\(trimmedUsername)' in Firestore.")
+            self.errorMessage = nil // Clear error on success
+            // The listener should update the @Published var username
+
+        } catch { // Catch errors from query OR update
+            let nsError = error as NSError
+            print("!!! Error during username update process: \(error.localizedDescription) (Code: \(nsError.code))")
+             if nsError.code == FirestoreErrorCode.permissionDenied.rawValue {
+                  self.errorMessage = "Permission denied updating username."
+             } else if nsError.code == FirestoreErrorCode.notFound.rawValue {
+                  self.errorMessage = "User profile not found. Cannot update username."
+             } else {
+                  self.errorMessage = "Failed to update username: \(error.localizedDescription)"
+             }
         }
+
+        // 5. Stop Loading State (always happens after try/catch)
+        isLoading = false
+        // --- End Uniqueness Check & Update ---
     }
 
-    // MARK: - Username Fetching (for specific IDs - e.g., event creators, leaderboard)
+
+    // MARK: - Username Fetching (for specific IDs)
 
     /// Fetches the username for a given User ID from Firestore, using a cache first.
-    /// - Parameters:
-    ///   - userId: The UID of the user whose username is needed.
-    ///   - completion: A closure called on the main thread with the fetched username (String?) or nil.
     func fetchUsername(for userId: String, completion: @escaping (String?) -> Void) {
-        // 1. Check cache first
         if let cachedName = usernameCache[userId] {
-            // print("Username cache hit for \(userId): '\(cachedName)'") // Optional log
             DispatchQueue.main.async { completion(cachedName) }
             return
         }
 
-        // 2. Not in cache, fetch from Firestore
         print("Username cache miss. Fetching username for specific User ID: \(userId)")
         let userDocRef = db.collection("users").document(userId)
 
         userDocRef.getDocument { [weak self] (documentSnapshot, error) in
-            // Ensure completion handler is called on the main thread
-            DispatchQueue.main.async {
-                guard let self = self else { completion(nil); return } // Check if self still exists
-
-                var fetchedUsername: String? = nil // Prepare result
-
+            DispatchQueue.main.async { // Ensure completion on main thread
+                guard let self = self else { completion(nil); return }
+                var fetchedUsername: String? = nil
                 if let error = error {
                     print("!!! Error fetching user document \(userId) for username: \(error.localizedDescription)")
-                    // Don't cache errors
                 } else if let document = documentSnapshot, document.exists {
                     fetchedUsername = document.data()?["username"] as? String
-                    print("Fetched username '\(fetchedUsername ?? "nil")' for user \(userId)")
-                    // Update cache if username found and not empty
                     if let nameToCache = fetchedUsername?.nilIfEmpty {
                          self.usernameCache[userId] = nameToCache
-                         print("Updated username cache for \(userId).")
                     }
                 } else {
                     print("User document \(userId) not found when fetching username.")
-                    // Optionally cache 'not found' state? For now, just return nil.
                 }
-                completion(fetchedUsername?.nilIfEmpty) // Return username or nil if empty/not found/error
+                completion(fetchedUsername?.nilIfEmpty)
             }
         }
     }
 
-
 } // End Class AuthenticationViewModel
-
-// MARK: - Helper Extensions
 
