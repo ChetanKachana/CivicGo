@@ -22,18 +22,6 @@ struct MainTabView: View {
             }
             .tag(0) // Assign a tag for potential programmatic selection
 
-            // --- FAVORITES TAB REMOVED ---
-            /*
-            if let user = authViewModel.userSession, !user.isAnonymous {
-                NavigationView { FavoritesListView() } // This view is no longer used
-                    .tabItem { Label("Favorites", systemImage: "heart.fill") }
-                    .tag(1)
-            }
-            */
-            // --- END REMOVED TAB ---
-
-
-            // Tab 2 (Effectively): My Events (Visible only to MANAGERS)
             if authViewModel.isManager { // Only show if user is a manager
                  NavigationView {
                      MyEventsListView() // The view showing events created by the manager
