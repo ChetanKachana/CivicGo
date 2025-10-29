@@ -207,6 +207,7 @@ struct OpportunityListView: View {
 
         } // End main VStack
         .navigationTitle("Volunteering")
+        .navigationBarTitleDisplayMode(.inline) // <--- ADD THIS LINE to make the title sticky
         
         .toolbar { // --- Toolbar ---
             ToolbarItem(placement: .navigationBarLeading) { leaderboardButton }
@@ -219,6 +220,8 @@ struct OpportunityListView: View {
                 if authViewModel.isManager { // Add Button
                     Button { showingCreateSheet = true } label: { Label("Add Opportunity", systemImage: "plus.circle.fill") }
                          .accessibilityLabel("Add New Opportunity")
+                         //.font(.system(size:50))
+                         
                 }
             }
         }
@@ -619,3 +622,7 @@ extension String {
     }
     
 }
+ 
+#Preview {
+          OpportunityListView()
+       }

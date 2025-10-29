@@ -253,34 +253,38 @@ struct OpportunityDetailView: View {
     /// Displays the RSVP / Cancel RSVP Button area, using `canPerformRsvp`.
     @ViewBuilder private var rsvpButtonArea: some View {
         VStack(spacing: 5) {
-            if viewModel.isTogglingRsvp { // Loading state
-                ProgressView("Updating RSVP...").padding(.vertical, 10)
-            } else { // Buttons based on RSVP status
-                if isRsvpedByCurrentUser { // --- Cancel Button ---
-                    Button { viewModel.toggleRSVP(opportunity: opportunity) } label: {
-                        Label("Cancel RSVP", systemImage: "person.fill.xmark").frame(maxWidth: .infinity)
-                    }
+            HStack{
+                Spacer()
+                if viewModel.isTogglingRsvp { // Loading state
+                    ProgressView("Updating RSVP...").padding(.vertical, 10)
+                } else { // Buttons based on RSVP status
+                    if isRsvpedByCurrentUser { // --- Cancel Button ---
+                        Button { viewModel.toggleRSVP(opportunity: opportunity) } label: {
+                            Label("Cancel RSVP", systemImage: "person.fill.xmark").frame(maxWidth: .infinity)
+                        }
                         .buttonStyle(.bordered).tint(.red)
                         .disabled(!canPerformRsvp) // Disable based on computed property
                         .accessibilityLabel("Cancel RSVP for \(opportunity.name)")
-                    // Show "You are attending" only if RSVP is possible (not ongoing)
-                     if !opportunity.isCurrentlyOccurring {
-                         Text("You are attending!").font(.caption).foregroundColor(.green).padding(.top, 2)
-                     }
-
-                } else { // --- RSVP Button ---
-                    Button { viewModel.toggleRSVP(opportunity: opportunity) } label: {
-                        Label("RSVP (I'm Going!)", systemImage: "person.fill.checkmark").frame(maxWidth: .infinity)
-                    }
+                        // Show "You are attending" only if RSVP is possible (not ongoing)
+                        if !opportunity.isCurrentlyOccurring {
+                            Text("You are attending!").font(.caption).foregroundColor(.green).padding(.top, 2)
+                        }
+                        
+                    } else { // --- RSVP Button ---
+                        Button { viewModel.toggleRSVP(opportunity: opportunity) } label: {
+                            Label("RSVP (I'm Going!)", systemImage: "person.fill.checkmark").frame(maxWidth: .infinity)
+                        }
                         .buttonStyle(.borderedProminent).tint(.green)
                         // Disable if full OR if cannot perform RSVP (e.g., ongoing)
                         .disabled(opportunity.isFull || !canPerformRsvp)
                         .accessibilityLabel("RSVP for \(opportunity.name)")
-                     // Show "Event full" message only if full AND not ongoing
-                     if opportunity.isFull && !opportunity.isCurrentlyOccurring {
-                         Text("Event is full.").font(.caption).foregroundColor(.orange).padding(.top, 2)
-                     }
+                        // Show "Event full" message only if full AND not ongoing
+                        if opportunity.isFull && !opportunity.isCurrentlyOccurring {
+                            Text("Event is full.").font(.caption).foregroundColor(.orange).padding(.top, 2)
+                        }
+                    }
                 }
+                Spacer()
             }
         }.frame(maxWidth: .infinity) // Center buttons horizontally
          .animation(.default, value: viewModel.isTogglingRsvp) // Animate loading state
