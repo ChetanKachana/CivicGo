@@ -4,11 +4,10 @@ import Combine
 import FirebaseAuth
 import ActivityKit
 
-// NEW: UserInfo struct to hold basic user details for any user
 struct UserInfo: Identifiable, Hashable {
     let id: String
     let username: String
-    // Add other fields if needed, e.g., profilePictureURL
+   
 }
 
 struct ManagerInfo: Identifiable, Hashable {
@@ -41,12 +40,10 @@ class OpportunityViewModel: ObservableObject {
     @Published var isRemovingAttendee: Bool = false
     @Published var removeAttendeeErrorMessage: String?
 
-    // Published property to cache all fetched user information
     @Published var allUserInfos: [String: UserInfo] = [:]
     @Published var isLoadingAllUsers: Bool = false
 
 
-    // Store references to active Live Activities
     private var activeLiveActivities: [String: Activity<EventLiveActivityAttributes>] = [:]
     private var activityUpdateTask: Task<Void, Never>?
 
@@ -61,15 +58,13 @@ class OpportunityViewModel: ObservableObject {
     // MARK: - Initialization
     init() {
         print("OpportunityViewModel initialized.")
-        // NEW: Reconnect to any existing Live Activities on app launch
         Task { @MainActor in
             for activity in Activity<EventLiveActivityAttributes>.activities {
                 self.activeLiveActivities[activity.attributes.opportunityId] = activity
                 print("Reconnected to existing Live Activity for \(activity.attributes.eventName) (ID: \(activity.id))")
             }
         }
-        // If we wanted to resume/monitor existing activities, we'd query Activity.activities here.
-        // For simplicity, we start/end them directly from app actions.
+       
     }
 
     // MARK: - Setup & Teardown
@@ -95,7 +90,7 @@ class OpportunityViewModel: ObservableObject {
                         }
                     } else {
                         await self.clearAllDataAndListeners()
-                        self.endAllLiveActivities() // End all activities on logout
+                        self.endAllLiveActivities()
                     }
                 }
             }
@@ -118,9 +113,9 @@ class OpportunityViewModel: ObservableObject {
         userDataListener?.remove()
         managersListener?.remove()
         authCancellables.forEach { $0.cancel() }
-        // Wrap MainActor call in a Task for deinit context
+        
         Task { @MainActor in
-            self.endAllLiveActivities() // End any active activities on deinit
+            self.endAllLiveActivities() 
         }
         print("OpportunityViewModel cleanup complete.")
     }
@@ -180,21 +175,19 @@ class OpportunityViewModel: ObservableObject {
         return calendar.date(from: combinedComponents)
     }
 
-    // Method to fetch details (like username) for a given set of user IDs
     @MainActor
     func fetchUserDetails(for userIds: Set<String>) async {
         guard !userIds.isEmpty else { return }
 
-        // Filter out users whose details we already have
         let newUsersToFetch = userIds.filter { allUserInfos[$0] == nil }
         guard !newUsersToFetch.isEmpty else { return }
 
         print("Fetching details for \(newUsersToFetch.count) new users...")
         isLoadingAllUsers = true
-        errorMessage = nil // Clear general error message
+        errorMessage = nil
 
         let userIdsArray = Array(newUsersToFetch)
-        let chunkSize = 10 // Firestore 'in' query limit is 10
+        let chunkSize = 10
         var allFetchedUsers: [String: UserInfo] = [:]
 
         do {
@@ -210,8 +203,7 @@ class OpportunityViewModel: ObservableObject {
                     }
                 }
             }
-            // Merge newly fetched users into the existing dictionary
-            self.allUserInfos.merge(allFetchedUsers) { (current, new) in new } // Prefer new data if conflict
+            self.allUserInfos.merge(allFetchedUsers) { (current, new) in new } 
             print("Successfully fetched details for \(allFetchedUsers.count) users.")
         } catch {
             print("!!! Error fetching user details: \(error.localizedDescription)")
@@ -221,7 +213,6 @@ class OpportunityViewModel: ObservableObject {
         isLoadingAllUsers = false
     }
 
-    // Helper to get username from the cache
     func username(for userId: String) -> String? {
         return allUserInfos[userId]?.username
     }
@@ -263,8 +254,7 @@ class OpportunityViewModel: ObservableObject {
                         self.errorMessage = nil
                      }
 
-                     // Gather all unique attendee IDs from the fetched opportunities
-                     // and then fetch their details
+                   
                      let allAttendeeIds = Set(newOpportunities.flatMap { $0.attendeeIds })
                      if !allAttendeeIds.isEmpty {
                          await self.fetchUserDetails(for: allAttendeeIds)
@@ -303,7 +293,6 @@ class OpportunityViewModel: ObservableObject {
                      let newManagers = documents.compactMap { doc -> ManagerInfo? in
                          let data = doc.data()
                          guard let username = data["username"] as? String else { return nil }
-                         // Also store manager info in allUserInfos
                          self.allUserInfos[doc.documentID] = UserInfo(id: doc.documentID, username: username)
                          return ManagerInfo(id: doc.documentID, username: username, logoImageURL: data["logoImageURL"] as? String)
                      }
@@ -423,15 +412,11 @@ class OpportunityViewModel: ObservableObject {
                      print(">>> Opportunity \(opportunityId) updated successfully!"); self.errorMessage = nil
                      completion?(true)
 
-                     // NEW: Live Activity Update Logic
-                     // If the current user is RSVP'd to this opportunity and it has an active Live Activity,
-                     // we need to end the old one and start a new one with the updated attributes.
+                   
                      if let currentUser = Auth.auth().currentUser, !currentUser.isAnonymous {
                          if self.rsvpedOpportunityIds.contains(opportunityId) {
                              if let originalOpportunity = self.opportunities.first(where: { $0.id == opportunityId }) {
 
-                                 // Construct a new Opportunity object with the updated details
-                                 // We use existing properties from originalOpportunity for those not changed by this update call
                                  let updatedOpportunity = Opportunity(
                                      id: originalOpportunity.id,
                                      name: trimmedName,
@@ -446,10 +431,8 @@ class OpportunityViewModel: ObservableObject {
                                      attendanceRecords: originalOpportunity.attendanceRecords
                                  )
 
-                                 // End the existing Live Activity to clear its old attributes
                                  self.endLiveActivity(for: opportunityId)
                                  
-                                 // Start a new Live Activity with the updated opportunity details
                                  Task { @MainActor in
                                      self.startLiveActivity(for: updatedOpportunity)
                                  }
@@ -488,43 +471,36 @@ class OpportunityViewModel: ObservableObject {
 
     // MARK: - Live Activity Management
     func startLiveActivity(for opportunity: Opportunity) {
-        // Check if Live Activities are enabled by the user
         guard ActivityAuthorizationInfo().areActivitiesEnabled else {
             print("Live Activities are not enabled or authorized.")
             Task { @MainActor in self.rsvpErrorMessage = "Live Activities are disabled. Please enable them in Settings." }; clearErrorAfterDelay(.rsvp)
             return
         }
 
-        // Prevent starting if already active for this opportunity
         if activeLiveActivities[opportunity.id] != nil {
             print("Live Activity for \(opportunity.name) is already active.")
-            // If already active, ensure it's up-to-date with current state
             Task { await self.updateLiveActivity(for: opportunity) }
             return
         }
 
-        // Only start for future OR currently occurring events
         guard opportunity.eventDate > Date() || opportunity.isCurrentlyOccurring else {
             print("Not starting Live Activity for past event: \(opportunity.name)")
             return
         }
 
-        // Initial state for the Live Activity (e.g., a calendar emoji)
         let initialContentState = EventLiveActivityAttributes.EventStatus(
-            statusEmoji: "🗓️" // Or a more dynamic emoji based on initial state
+            statusEmoji: "🗓️"
         )
 
-        // Attributes (static data) for the Live Activity
         let attributes = EventLiveActivityAttributes(
             eventName: opportunity.name,
             eventLocation: opportunity.location,
             eventStartTime: opportunity.eventDate,
-            eventEndTime: opportunity.endTime, // Pass eventEndTime from Opportunity
+            eventEndTime: opportunity.endTime,
             opportunityId: opportunity.id
         )
 
         do {
-            // Request to start the Live Activity
             let activity = try Activity<EventLiveActivityAttributes>.request(
                 attributes: attributes,
                 contentState: initialContentState
@@ -538,14 +514,12 @@ class OpportunityViewModel: ObservableObject {
         }
     }
 
-    // NEW: Method to update a Live Activity
     func updateLiveActivity(for opportunity: Opportunity) async {
         guard let activity = activeLiveActivities[opportunity.id] else {
             print("No active Live Activity found for ID \(opportunity.id) to update.")
             return
         }
 
-        // Determine the current emoji based on event time (or other logic)
         let now = Date()
         let statusEmoji: String
         if opportunity.hasEnded {
@@ -564,7 +538,6 @@ class OpportunityViewModel: ObservableObject {
 
         print("Updating Live Activity for \(opportunity.name) (ID: \(activity.id)) with emoji: \(statusEmoji)")
         do {
-            // Push the update. An alert configuration can be added here if a notification is desired.
             await activity.update(using: updatedContentState)
             print("Live Activity update successful.")
         } catch {
@@ -580,8 +553,7 @@ class OpportunityViewModel: ObservableObject {
 
         Task {
             print("Ending Live Activity for ID: \(opportunityId)")
-            // Dismissal policy: .after(Date) allows the Live Activity to linger for a bit after being ended.
-            // We'll let it stay for 30 minutes after the event's start time for context, then disappear.
+         
             let dismissalDate = activity.attributes.eventStartTime.addingTimeInterval(30 * 60)
             await activity.end(using: activity.contentState, dismissalPolicy: .after(dismissalDate))
             activeLiveActivities.removeValue(forKey: opportunityId)
@@ -619,7 +591,6 @@ class OpportunityViewModel: ObservableObject {
                 if document.exists, let data = document.data() {
                     latestFavIds = Set(data["favoriteOpportunityIds"] as? [String] ?? [])
                     latestRsvpIds = Set(data["rsvpedOpportunityIds"] as? [String] ?? [])
-                    // Cache current user's info too if it's available
                     if let username = data["username"] as? String {
                         self.allUserInfos[userId] = UserInfo(id: userId, username: username)
                     }
@@ -629,22 +600,19 @@ class OpportunityViewModel: ObservableObject {
                 if self.rsvpedOpportunityIds != latestRsvpIds {
                     self.rsvpedOpportunityIds = latestRsvpIds
                      print("---> RSVPs Set Updated via Listener. New count: \(self.rsvpedOpportunityIds.count)")
-                    // Sync Live Activities with fetched RSVPs if they changed on another device
                     self.syncLiveActivitiesWithRSVPs(latestRsvpIds: latestRsvpIds)
                 }
             }
         }
     }
 
-    // Sync Live Activities when user data changes (e.g., if RSVP changes on another device)
+  
     private func syncLiveActivitiesWithRSVPs(latestRsvpIds: Set<String>) {
-        // End activities for opportunities no longer RSVP'd
         for (oppId, activity) in activeLiveActivities where !latestRsvpIds.contains(oppId) {
             print("Sync: Ending Live Activity for \(oppId) (no longer RSVP'd).")
-            self.endLiveActivity(for: oppId) // This will remove from activeLiveActivities
+            self.endLiveActivity(for: oppId)
         }
 
-        // Start activities for newly RSVP'd opportunities (if they are future OR currently occurring events)
         let currentActiveIds = Set(activeLiveActivities.keys)
         for opportunity in opportunities where latestRsvpIds.contains(opportunity.id) && !currentActiveIds.contains(opportunity.id) {
             if opportunity.eventDate > Date() || opportunity.isCurrentlyOccurring {
@@ -652,9 +620,7 @@ class OpportunityViewModel: ObservableObject {
                 self.startLiveActivity(for: opportunity)
             }
         }
-        // Also, ensure all active Live Activities reflect their *current* state (e.g., if an event just started)
-        // This is important if an activity was started on another device and the local app didn't initiate it,
-        // or if the app was in the background and the event time crossed a threshold.
+        
         for opportunity in opportunities where latestRsvpIds.contains(opportunity.id) && currentActiveIds.contains(opportunity.id) {
             Task { await self.updateLiveActivity(for: opportunity) }
         }
@@ -745,17 +711,15 @@ class OpportunityViewModel: ObservableObject {
                     self.rsvpedOpportunityIds = revertedSet
                     print("Reverted state. Final local count: \(self.rsvpedOpportunityIds.count)")
 
-                    // Revert Live Activity state if batch failed
-                    if !isCurrentlyRsvped { // If we tried to RSVP but it failed
-                        self.endLiveActivity(for: opportunity.id) // End the optimistically started activity
+                    if !isCurrentlyRsvped {
+                        self.endLiveActivity(for: opportunity.id)
                     }
                 } else {
                     print(">>> BATCH COMMIT SUCCEEDED <<<"); self.rsvpErrorMessage = nil
-                    // Live Activity Management based on successful RSVP change
-                    if isCurrentlyRsvped { // If user just cancelled RSVP
+                    if isCurrentlyRsvped {
                         self.endLiveActivity(for: opportunity.id)
-                    } else { // If user just RSVP'd successfully
-                        await self.startLiveActivity(for: opportunity) // Will start if event is in future OR currently occurring
+                    } else {
+                        await self.startLiveActivity(for: opportunity)
                     }
                 }
             }
@@ -813,7 +777,6 @@ class OpportunityViewModel: ObservableObject {
                      self.removeAttendeeErrorMessage = "Failed to remove attendee."; self.clearErrorAfterDelay(.removeAttendee)
                  } else {
                      print(">>> MANAGER REMOVE ATTENDEE BATCH SUCCEEDED <<<"); self.removeAttendeeErrorMessage = nil
-                     // If the removed attendee was the current user, their Live Activity would be ended by syncLiveActivitiesWithRSVPs
                 }
              }
          }

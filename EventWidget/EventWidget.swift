@@ -31,9 +31,7 @@ struct Provider: AppIntentTimelineProvider {
         return Timeline(entries: entries, policy: .atEnd)
     }
 
-//    func relevances() async -> WidgetRelevances<ConfigurationAppIntent> {
-//        // Generate a list containing the contexts this widget is relevant in.
-//    }
+
 }
 
 struct SimpleEntry: TimelineEntry {

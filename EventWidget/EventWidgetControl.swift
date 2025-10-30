@@ -42,7 +42,7 @@ extension EventWidgetControl {
         }
 
         func currentValue(configuration: TimerConfiguration) async throws -> Value {
-            let isRunning = true // Check if the timer is running
+            let isRunning = true 
             return EventWidgetControl.Value(isRunning: isRunning, name: configuration.timerName)
         }
     }
@@ -71,7 +71,6 @@ struct StartTimerIntent: SetValueIntent {
     }
 
     func perform() async throws -> some IntentResult {
-        // Start the timer…
         return .result()
     }
 }

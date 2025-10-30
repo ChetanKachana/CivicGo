@@ -1,12 +1,10 @@
 import SwiftUI
-import FirebaseCore // Import Firebase Core
+import FirebaseCore 
 
-// --- AppDelegate for Firebase Initialization ---
-// This class handles the setup of Firebase when the app launches.
+
 class AppDelegate: NSObject, UIApplicationDelegate {
   func application(_ application: UIApplication,
                    didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey : Any]? = nil) -> Bool {
-    // Configure Firebase using the GoogleService-Info.plist file
     FirebaseApp.configure()
     print("Firebase Configured via AppDelegate!")
     return true

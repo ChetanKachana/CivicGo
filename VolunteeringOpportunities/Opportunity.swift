@@ -48,7 +48,6 @@ struct Opportunity: Identifiable, Equatable, Hashable {
         return durationSeconds / 3600.0
     }
 
-    // Public Designated Initializer for creating/updating Opportunity objects programmatically
     public init(id: String, name: String, location: String, description: String, eventTimestamp: Timestamp, endTimestamp: Timestamp, creatorUserId: String? = nil, organizerUsername: String? = nil, maxAttendees: Int? = nil, attendeeIds: [String] = [], attendanceRecords: [String: String]? = nil) {
         self.id = id
         self.name = name
@@ -116,9 +115,7 @@ struct Opportunity: Identifiable, Equatable, Hashable {
 
 
     #if DEBUG
-    // The new public init makes this internal init redundant for programmatic creation.
-    // It's kept for historical context if specific internal-only preview logic needed it.
-
+   
     static var previewInstance: Opportunity {
          let start = Date().addingTimeInterval(3600 * 24)
          let end = start.addingTimeInterval(3600 * 2)

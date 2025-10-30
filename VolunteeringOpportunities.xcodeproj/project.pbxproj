@@ -86,7 +86,10 @@
 		FE1FCDE52EB26E9D00B88BCE /* Exceptions for "VolunteeringOpportunities" folder in "EventWidgetExtension" target */ = {
 			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
 			membershipExceptions = (
+				AnimatedMeshBackgroundView.swift,
+				AnimatedWaveBackgroundView.swift,
 				EventLiveActivityAttributes.swift,
+				WaveShape.swift,
 			);
 			target = FE1FCDC52EB1DE7100B88BCE /* EventWidgetExtension */;
 		};
